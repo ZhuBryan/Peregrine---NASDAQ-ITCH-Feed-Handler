@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="648pt" height="187.2pt" viewBox="0 0 648 187.2" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-11-12T23:48:07.088643</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.9, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 187.2 
+L 648 187.2 
+L 648 0 
+L 0 0 
+z
+" style="fill: #fcfcfb"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 194.12 176.4 
+L 410.26 176.4 
+L 410.26 24.72 
+L 194.12 24.72 
+z
+" style="fill: #fcfcfb"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 194.12 169.505455 
+L 371.283934 169.505455 
+L 371.283934 144.178553 
+L 194.12 144.178553 
+z
+" clip-path="url(#p6cf938566f)" style="fill: #2a78d6"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 194.12 113.223451 
+L 342.870851 113.223451 
+L 342.870851 87.896549 
+L 194.12 87.896549 
+z
+" clip-path="url(#p6cf938566f)" style="fill: #2a78d6"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 194.12 56.941447 
+L 244.260736 56.941447 
+L 244.260736 31.614545 
+L 194.12 31.614545 
+z
+" clip-path="url(#p6cf938566f)" style="fill: #2a78d6"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="ytick_1">
+     <g id="line2d_1"/>
+     <g id="text_1">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(178.33875 155.80216)">v2</text>
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(10.896562 166.999972)">+ lookahead prefetch, 16-byte slots</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_2"/>
+     <g id="text_2">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(178.33875 99.520156)">v1</text>
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(40.480938 110.717969)">flat hash map + sorted arrays</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_3"/>
+     <g id="text_3">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(148.221563 43.238153)">Baseline</text>
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(30.399687 54.435965)">std::unordered_map + std::map</text>
+     </g>
+    </g>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #0b0b0b" x="375.283934" y="159.601379" transform="rotate(-0 375.283934 159.601379)">5.3M</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #0b0b0b" x="346.870851" y="103.319375" transform="rotate(-0 346.870851 103.319375)">4.5M</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #0b0b0b" x="248.260736" y="47.037371" transform="rotate(-0 248.260736 47.037371)">1.5M</text>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #0b0b0b" x="194.12" y="18.72" transform="rotate(-0 194.12 18.72)">Throughput (million messages / s)</text>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="patch_6">
+    <path d="M 421.06 176.4 
+L 637.2 176.4 
+L 637.2 24.72 
+L 421.06 24.72 
+z
+" style="fill: #fcfcfb"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 421.06 169.505455 
+L 458.956029 169.505455 
+L 458.956029 144.178553 
+L 421.06 144.178553 
+z
+" clip-path="url(#p7471222e4b)" style="fill: #2a78d6"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 421.06 113.223451 
+L 511.063068 113.223451 
+L 511.063068 87.896549 
+L 421.06 87.896549 
+z
+" clip-path="url(#p7471222e4b)" style="fill: #2a78d6"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 421.06 56.941447 
+L 598.223934 56.941447 
+L 598.223934 31.614545 
+L 421.06 31.614545 
+z
+" clip-path="url(#p7471222e4b)" style="fill: #2a78d6"/>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_4">
+     <g id="line2d_4"/>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_5"/>
+    </g>
+    <g id="ytick_6">
+     <g id="line2d_6"/>
+    </g>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #0b0b0b" x="462.956029" y="159.601379" transform="rotate(-0 462.956029 159.601379)">120 ns</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #0b0b0b" x="515.063068" y="103.319375" transform="rotate(-0 515.063068 103.319375)">285 ns</text>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #0b0b0b" x="602.223934" y="47.037371" transform="rotate(-0 602.223934 47.037371)">561 ns</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #0b0b0b" x="421.06" y="18.72" transform="rotate(-0 421.06 18.72)">Median latency per message (ns)</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p6cf938566f">
+   <rect x="194.12" y="24.72" width="216.14" height="151.68"/>
+  </clipPath>
+  <clipPath id="p7471222e4b">
+   <rect x="421.06" y="24.72" width="216.14" height="151.68"/>
+  </clipPath>
+ </defs>
+</svg>
