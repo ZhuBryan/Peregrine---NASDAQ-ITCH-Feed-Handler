@@ -1,0 +1,11 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit and differential tests (optimized and baseline builds)
+        run: make test
+      - name: MoldUDP64 loopback test with injected packet loss
+        run: make udptest
