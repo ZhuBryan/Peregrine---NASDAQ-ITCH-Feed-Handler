@@ -1,4 +1,4 @@
-# itchfh: NASDAQ ITCH 5.0 feed handler in C++20
+# Peregrine: NASDAQ ITCH 5.0 feed handler in C++20
 
 Decodes real NASDAQ TotalView-ITCH 5.0 market data, rebuilds the full-depth order
 book for every listed symbol, and publishes top-of-book changes to a consumer
