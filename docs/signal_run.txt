@@ -1,0 +1,24 @@
+messages        268744780 (263241937 book-changing), feed time up to 20:00:00
+bbo changes     124767189, 124767189 published, 124767189 consumed, 0 conflated
+integrity       0 unknown order refs, 905 crossed BBOs, final consumer state matches books
+live orders     0 at end
+AAPL     bid 0 @ 0.0000 | ask 0 @ 0.0000 | depth 0 x 0 levels
+SPY      bid 0 @ 0.0000 | ask 0 @ 0.0000 | depth 0 x 0 levels
+MSFT     bid 0 @ 0.0000 | ask 0 @ 0.0000 | depth 0 x 0 levels
+TSLA     bid 0 @ 0.0000 | ask 0 @ 0.0000 | depth 0 x 0 levels
+imbalance = bid size / (bid size + ask size), 1-cent spreads, 09:30-16:00; share of next mid moves that were up
+  imbalance   at quote start        just before move
+  0.0-0.1      27.5% (  389473)      6.6% (  532062)
+  0.1-0.2      27.8% (  294855)      6.2% (  303010)
+  0.2-0.3      32.5% (  246731)      9.6% (  220914)
+  0.3-0.4      38.1% (  226004)     16.5% (  179645)
+  0.4-0.5      41.1% (  115755)     23.4% (   79796)
+  0.5-0.6      52.7% (  430742)     56.5% (  326549)
+  0.6-0.7      62.6% (  242314)     85.2% (  190101)
+  0.7-0.8      66.9% (  186958)     90.3% (  165782)
+  0.8-0.9      71.4% (  341674)     93.6% (  342170)
+  0.9-1.0      72.3% (  395535)     93.7% (  530132)
+wall time       55.266 s
+throughput      4.9 M msgs/s (205.6 ns/msg avg)
+feed latency    p50 120  p99 852  p99.9 2525  max 2235893 ns (decode + book + publish; includes one clock read)
+queue latency   p50 210  p99 580141  p99.9 8052626  max 98491136 ns (publish to consume; includes one clock read)

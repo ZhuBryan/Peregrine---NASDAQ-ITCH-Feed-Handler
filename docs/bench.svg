@@ -6,7 +6,7 @@
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-11-12T23:48:07.088643</dc:date>
+    <dc:date>2026-11-13T02:34:25.732113</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -43,7 +43,7 @@ L 371.283934 169.505455
 L 371.283934 144.178553 
 L 194.12 144.178553 
 z
-" clip-path="url(#p6cf938566f)" style="fill: #2a78d6"/>
+" clip-path="url(#pece548b3d3)" style="fill: #2a78d6"/>
    </g>
    <g id="patch_4">
     <path d="M 194.12 113.223451 
@@ -51,7 +51,7 @@ L 342.870851 113.223451
 L 342.870851 87.896549 
 L 194.12 87.896549 
 z
-" clip-path="url(#p6cf938566f)" style="fill: #2a78d6"/>
+" clip-path="url(#pece548b3d3)" style="fill: #2a78d6"/>
    </g>
    <g id="patch_5">
     <path d="M 194.12 56.941447 
@@ -59,7 +59,7 @@ L 244.260736 56.941447
 L 244.260736 31.614545 
 L 194.12 31.614545 
 z
-" clip-path="url(#p6cf938566f)" style="fill: #2a78d6"/>
+" clip-path="url(#pece548b3d3)" style="fill: #2a78d6"/>
    </g>
    <g id="matplotlib.axis_1">
     <g id="ytick_1">
@@ -112,7 +112,7 @@ L 458.956029 169.505455
 L 458.956029 144.178553 
 L 421.06 144.178553 
 z
-" clip-path="url(#p7471222e4b)" style="fill: #2a78d6"/>
+" clip-path="url(#p111e0239dd)" style="fill: #2a78d6"/>
    </g>
    <g id="patch_8">
     <path d="M 421.06 113.223451 
@@ -120,7 +120,7 @@ L 511.063068 113.223451
 L 511.063068 87.896549 
 L 421.06 87.896549 
 z
-" clip-path="url(#p7471222e4b)" style="fill: #2a78d6"/>
+" clip-path="url(#p111e0239dd)" style="fill: #2a78d6"/>
    </g>
    <g id="patch_9">
     <path d="M 421.06 56.941447 
@@ -128,7 +128,7 @@ L 598.223934 56.941447
 L 598.223934 31.614545 
 L 421.06 31.614545 
 z
-" clip-path="url(#p7471222e4b)" style="fill: #2a78d6"/>
+" clip-path="url(#p111e0239dd)" style="fill: #2a78d6"/>
    </g>
    <g id="matplotlib.axis_2">
     <g id="ytick_4">
@@ -156,10 +156,10 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p6cf938566f">
+  <clipPath id="pece548b3d3">
    <rect x="194.12" y="24.72" width="216.14" height="151.68"/>
   </clipPath>
-  <clipPath id="p7471222e4b">
+  <clipPath id="p111e0239dd">
    <rect x="421.06" y="24.72" width="216.14" height="151.68"/>
   </clipPath>
  </defs>
