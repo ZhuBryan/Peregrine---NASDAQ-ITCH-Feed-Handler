@@ -1,0 +1,4 @@
+build/
+data/
+NOTES.md
+__pycache__/
