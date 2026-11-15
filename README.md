@@ -9,6 +9,8 @@ stream with gap recovery. Header-only core, no dependencies.
 
 ![Throughput and median latency by build](docs/bench.svg)
 
+![Terminal recording: tests, UDP loss test, and a replay of the sample](docs/run.svg)
+
 **Demo page:** `docs/index.html` is a self-contained page with an order-book replay and
 charts of the full session. Open it in a browser, or serve it with GitHub Pages from `/docs`.
 Rebuild it with `python3 scripts/build_page.py` after re-exporting `docs/data/day.json`.
@@ -40,6 +42,12 @@ pinned. Re-run on bare metal before quoting.
 
 Percentiles are per-message (decode + book update + publish), sampled 1 in 64,
 and each sample includes one clock read.
+
+A later change made every execute, cancel, delete and replace do one hash lookup
+where it had done up to three. In three back-to-back paired runs on the same slice
+it gave 29% to 39% more throughput than version 2 (4.2 to 6.2M against 3.1 to 4.8M
+msg/s). The VM was much noisier that day, so the table above is left as measured;
+`scripts/bench.sh` re-measures both builds on your own machine.
 
 Correctness on the same data:
 - 0 messages referencing an unknown order across 63.0M book-changing messages.
@@ -156,7 +164,8 @@ The AAPL line is empty because the book is empty at 20:00.
 ## Design
 
 - **Zero-copy decode** (`include/itch.hpp`): fields are byte-swapped straight out
-  of the buffer into handler calls. No message structs, no allocation.
+  of the buffer into handler calls. No message structs, no allocation. A message
+  shorter than its type's layout is skipped and counted, never decoded.
 - **Order map** (`include/book.hpp`): open addressing, linear probing,
   backward-shift deletion (no tombstones under constant add/delete churn),
   16-byte slots, pre-sized so it never rehashes mid-session.
@@ -165,7 +174,8 @@ The AAPL line is empty because the book is empty at 20:00.
   side caching the other's index so the fast path reads no shared line.
 - **MoldUDP64** (`include/mold.hpp`): packets ahead of a gap are buffered, the
   missing range is requested (and re-requested after 20 ms), and messages reach
-  the book exactly once, in order.
+  the book exactly once, in order. Packets from another session are ignored, and
+  the receiver gives up with an error if the sender is silent for 5 seconds.
 - **Export** (`src/export.hpp`): per-minute activity, message mix and depth snapshots as JSON
   for the demo page.
 - **Conflation**: a per-symbol dirty flag plus a FIFO of dirty symbols; each
@@ -176,7 +186,8 @@ The AAPL line is empty because the book is empty at 20:00.
 Linux or WSL, g++ 11+.
 
 ```
-make test                                    # decoder, differential and SPSC tests, both builds
+make test                                    # decoder, differential, order-map and SPSC tests, both builds
+make sanitize                                # tests under ASan + UBSan, pipeline under TSan
 make udptest                                 # loopback UDP with injected loss vs file replay
 make
 ./build/itchfh data/sample_50MB.itch AAPL    # small real sample
@@ -184,6 +195,7 @@ make
 ./scripts/get_data.sh 2000000000             # or the 2 GB slice used for the benchmarks
 ./build/itchfh --pin 0,1 --signal data/12302019.itch AAPL SPY MSFT
 ./build/itchfh_baseline --pin 0,1 data/12302019.itch
+./scripts/bench.sh                           # both builds, 3 pinned runs each, as a table
 ./build/itchfh --conflate --queue 64 --work 2000 data/sample_50MB.itch
 gunzip -c day.gz | ./build/itchfh --signal - AAPL > docs/signal_run.txt   # stream without unpacking to disk
 python3 scripts/plot.py docs/signal_run.txt  # regenerate the charts
@@ -198,6 +210,12 @@ deletes, replaces in a tight price band), runs it through the decoder and book,
 and after every message compares each symbol's BBO against a brute-force
 reference that rescans all live orders. It also checks the "BBO changed" flag is
 exact and that the SPSC queue delivers 2M items in order across two threads.
+
+The order map is checked against `std::unordered_map` through 200,000 inserts and
+erases in a small table, so probe runs collide, wrap and trigger growth. Truncated
+and zero-length messages must be skipped and counted. `make sanitize` runs the
+tests under AddressSanitizer and UBSan and the two-thread pipeline under
+ThreadSanitizer; all three are clean.
 
 ## Not done
 

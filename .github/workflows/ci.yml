@@ -7,5 +7,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Unit and differential tests (optimized and baseline builds)
         run: make test
+      - name: Sanitizers (ASan + UBSan on tests, TSan on the pipeline)
+        run: make sanitize
       - name: MoldUDP64 loopback test with injected packet loss
         run: make udptest

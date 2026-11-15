@@ -9,6 +9,7 @@ if [ ! -f "$f" ]; then make -s build/test; ./build/test --emit "$out/synth.itch"
 ip=${2:-127.0.0.1}   # pass a 239.x.x.x address to test multicast
 ./build/itchfh --udp "$ip" 31337 AAPL SPY MSFT > "$out/udp.txt" &
 rx=$!
+trap 'kill $rx 2>/dev/null || true' EXIT
 sleep 0.3
 ./build/moldsend "$f" "$ip" 31337 --pps 20000 --drop 50
 wait $rx

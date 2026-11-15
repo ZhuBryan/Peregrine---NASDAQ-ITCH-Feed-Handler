@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" id="terminal" baseProfile="full" viewBox="0 0 976 376" width="976" version="1.1">
+    <defs>
+        <termtosvg:template_settings xmlns:termtosvg="https://github.com/nbedos/termtosvg">
+            <termtosvg:screen_geometry columns="122" rows="22"/>
+            <termtosvg:animation type="css"/>
+        </termtosvg:template_settings>
+        <style type="text/css" id="generated-style"><![CDATA[#screen {
+                font-family: 'DejaVu Sans Mono', monospace;
+                font-style: normal;
+                font-size: 14px;
+            }
+
+        text {
+            dominant-baseline: text-before-edge;
+            white-space: pre;
+        }
+    
+            :root {
+                --animation-duration: 15583ms;
+            }
+
+            @keyframes roll {
+                0.000%{transform:translateY(0px)}
+3.350%{transform:translateY(-408px)}
+11.448%{transform:translateY(-816px)}
+27.491%{transform:translateY(-1224px)}
+43.535%{transform:translateY(-1632px)}
+53.199%{transform:translateY(-2040px)}
+69.242%{transform:translateY(-2448px)}
+82.102%{transform:translateY(-2856px)}
+93.583%{transform:translateY(-3264px)}
+100.000%{transform:translateY(-3264px)}
+            }
+
+            #screen_view {
+                animation-duration: 15583ms;
+                animation-iteration-count:infinite;
+                animation-name:roll;
+                animation-timing-function: steps(1,end);
+                animation-fill-mode: forwards;
+            }
+        ]]></style>
+        <style type="text/css" id="user-style">
+            /* The colors defined below are the default 16 colors used for rendering text of the terminal. Adjust
+               them as needed.
+               PowerShell colors based on https://en.wikipedia.org/wiki/ANSI_escape_code#Colors */
+            .foreground {fill: #cccccc;}
+            .background {fill: #0c0c0c;}
+            .color0 {fill: #0c0c0c;}
+            .color1 {fill: #c50f1f;}
+            .color2 {fill: #13a10e;}
+            .color3 {fill: #c19c00;}
+            .color4 {fill: #0037da;}
+            .color5 {fill: #881798;}
+            .color6 {fill: #3a96dd;}
+            .color7 {fill: #cccccc;}
+            .color8 {fill: #767676;}
+            .color9 {fill: #e74856;}
+            .color10 {fill: #16c60c;}
+            .color11 {fill: #f9f1a5;}
+            .color12 {fill: #3b78ff;}
+            .color13 {fill: #b4009e;}
+            .color14 {fill: #61d6d6;}
+            .color15 {fill: #f2f2f2;}
+        </style>
+    </defs>
+    <svg id="screen" width="976" height="374" viewBox="0 0 976 374" preserveAspectRatio="xMidYMin slice">
+    <rect class="background" height="100%" width="100%" x="0" y="0"/><defs><g id="g1"><text x="0" textLength="8" class="background"> </text></g><g id="g2"><text x="0" textLength="8" font-weight="bold" class="color10">$</text><text x="8" textLength="80" class="foreground"> make test</text></g><g id="g3"><text x="0" textLength="296" class="foreground">./build/test &amp;&amp; ./build/test_baseline</text></g><g id="g4"><text x="0" textLength="128" class="foreground">all tests passed</text></g><g id="g5"><text x="0" textLength="8" font-weight="bold" class="color10">$</text><text x="8" textLength="504" class="foreground"> make udptest    # replay over UDP while dropping 2% of packets</text></g><g id="g6"><text x="0" textLength="936" class="foreground">udp: 36615 packets, 732 retransmit requests, 34295 messages recovered, 0 duplicates dropped, 202 max packets buffered</text></g><g id="g7"><text x="0" textLength="696" class="foreground">moldsend: 1716688 messages, 35883 packets sent, 732 dropped on purpose, 732 retransmits</text></g><g id="g8"><text x="0" textLength="384" class="foreground">udp test passed: output identical to file replay</text></g><g id="g9"><text x="0" textLength="8" font-weight="bold" class="color10">$</text><text x="8" textLength="416" class="foreground"> ./build/itchfh --pin 0,1 data/sample_50MB.itch AAPL</text></g><g id="g10"><text x="0" textLength="584" class="foreground">messages        1716688 (1474688 book-changing), feed time up to 05:52:56</text></g><g id="g11"><text x="0" textLength="560" class="foreground">bbo changes     640403, 640403 published, 640403 consumed, 0 conflated</text></g><g id="g12"><text x="0" textLength="704" class="foreground">integrity       0 unknown order refs, 0 crossed BBOs, final consumer state matches books</text></g><g id="g13"><text x="0" textLength="216" class="foreground">live orders     6222 at end</text></g><g id="g14"><text x="0" textLength="568" class="foreground">AAPL     bid 200 @ 289.4000 | ask 430 @ 289.7000 | depth 24 x 24 levels</text></g><g id="g15"><text x="0" textLength="184" class="foreground">wall time       0.167 s</text></g><g id="g16"><text x="0" textLength="376" class="foreground">throughput      10.3 M msgs/s (97.0 ns/msg avg)</text></g><g id="g17"><text x="0" textLength="864" class="foreground">feed latency    p50 91  p99 351  p99.9 591  max 479292 ns (decode + book + publish; includes one clock read)</text></g><g id="g18"><text x="0" textLength="872" class="foreground">queue latency   p50 141  p99 21360  p99.9 185565  max 534345 ns (publish to consume; includes one clock read)</text></g></defs><g id="screen_view"><g><rect x="0" y="0" width="8" height="17" class="foreground"/><use xlink:href="#g1" y="0"/></g><g><use xlink:href="#g2" y="408"/><rect x="0" y="425" width="8" height="17" class="foreground"/><use xlink:href="#g1" y="425"/></g><g><use xlink:href="#g2" y="816"/><use xlink:href="#g3" y="833"/><rect x="0" y="850" width="8" height="17" class="foreground"/><use xlink:href="#g1" y="850"/></g><g><use xlink:href="#g2" y="1224"/><use xlink:href="#g3" y="1241"/><use xlink:href="#g4" y="1258"/><rect x="0" y="1275" width="8" height="17" class="foreground"/><use xlink:href="#g1" y="1275"/></g><g><use xlink:href="#g2" y="1632"/><use xlink:href="#g3" y="1649"/><use xlink:href="#g4" y="1666"/><use xlink:href="#g4" y="1683"/><rect x="0" y="1700" width="8" height="17" class="foreground"/><use xlink:href="#g1" y="1700"/></g><g><use xlink:href="#g2" y="2040"/><use xlink:href="#g3" y="2057"/><use xlink:href="#g4" y="2074"/><use xlink:href="#g4" y="2091"/><use xlink:href="#g5" y="2108"/><rect x="0" y="2125" width="8" height="17" class="foreground"/><use xlink:href="#g1" y="2125"/></g><g><use xlink:href="#g2" y="2448"/><use xlink:href="#g3" y="2465"/><use xlink:href="#g4" y="2482"/><use xlink:href="#g4" y="2499"/><use xlink:href="#g5" y="2516"/><use xlink:href="#g6" y="2533"/><use xlink:href="#g7" y="2550"/><use xlink:href="#g8" y="2567"/><rect x="0" y="2584" width="8" height="17" class="foreground"/><use xlink:href="#g1" y="2584"/></g><g><use xlink:href="#g2" y="2856"/><use xlink:href="#g3" y="2873"/><use xlink:href="#g4" y="2890"/><use xlink:href="#g4" y="2907"/><use xlink:href="#g5" y="2924"/><use xlink:href="#g6" y="2941"/><use xlink:href="#g7" y="2958"/><use xlink:href="#g8" y="2975"/><use xlink:href="#g9" y="2992"/><rect x="0" y="3009" width="8" height="17" class="foreground"/><use xlink:href="#g1" y="3009"/></g><g><use xlink:href="#g2" y="3264"/><use xlink:href="#g3" y="3281"/><use xlink:href="#g4" y="3298"/><use xlink:href="#g4" y="3315"/><use xlink:href="#g5" y="3332"/><use xlink:href="#g6" y="3349"/><use xlink:href="#g7" y="3366"/><use xlink:href="#g8" y="3383"/><use xlink:href="#g9" y="3400"/><use xlink:href="#g10" y="3417"/><use xlink:href="#g11" y="3434"/><use xlink:href="#g12" y="3451"/><use xlink:href="#g13" y="3468"/><use xlink:href="#g14" y="3485"/><use xlink:href="#g15" y="3502"/><use xlink:href="#g16" y="3519"/><use xlink:href="#g17" y="3536"/><use xlink:href="#g18" y="3553"/><rect x="0" y="3570" width="8" height="17" class="foreground"/><use xlink:href="#g1" y="3570"/></g></g></svg>
+</svg>
