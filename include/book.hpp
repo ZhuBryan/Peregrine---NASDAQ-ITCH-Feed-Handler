@@ -96,6 +96,12 @@ public:
     }
     Level best() const { return m_.empty() ? Level{} : Level{m_.rbegin()->first, m_.rbegin()->second}; }
     void prefetch() const {}
+    Level level(size_t n) const {  // n-th best, 0 = best
+        if (n >= m_.size()) return Level{};
+        auto it = m_.rbegin();
+        std::advance(it, n);
+        return Level{it->first, it->second};
+    }
     size_t depth() const { return m_.size(); }
 };
 #else
@@ -121,6 +127,7 @@ public:
     }
     Level best() const { return v_.empty() ? Level{} : v_.back(); }
     void prefetch() const { if (!v_.empty()) __builtin_prefetch(&v_.back()); }
+    Level level(size_t n) const { return n < v_.size() ? v_[v_.size() - 1 - n] : Level{}; }  // n-th best, 0 = best
     size_t depth() const { return v_.size(); }
 };
 #endif
@@ -188,6 +195,11 @@ public:
     Top top(uint16_t loc) const {
         const Level b = syms_[loc].bid.best(), a = syms_[loc].ask.best();
         return Top{uint32_t(b.key), uint32_t(-a.key), b.qty, a.qty};
+    }
+    // n-th best level of one side as (price, size); price 0 = no such level.
+    Level level(uint16_t loc, char s, size_t n) const {
+        const Level l = s == 'B' ? syms_[loc].bid.level(n) : syms_[loc].ask.level(n);
+        return Level{l.key < 0 ? -l.key : l.key, l.qty};
     }
     size_t live_orders() const { return orders_.size(); }
     size_t depth(uint16_t loc, char s) const { return s == 'B' ? syms_[loc].bid.depth() : syms_[loc].ask.depth(); }
