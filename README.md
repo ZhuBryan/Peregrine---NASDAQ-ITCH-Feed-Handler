@@ -26,7 +26,11 @@ messages, 04:00 to 20:00), streamed with `gunzip -c | itchfh -`:
 - 124,767,189 BBO changes published and consumed; consumer state matched the books.
 - 0 live orders left at the close: every order added during the day was removed.
 - 4.9M msg/s (p50 120 ns, p99 852 ns) while sharing two vCPUs with `gunzip`.
-- 905 crossed BBOs over the day (not all inspected; see below for the pre-open ones).
+- No duplicate order references, no reduction without a matching price level, and no
+  malformed messages.
+- 905 crossed BBOs over the day, in 15 stocks, all accounted for: 433 while the stock
+  was paused, 53 while halted, 2 in a quotation-only period, and 417 within 1 ms of the
+  stock reopening, when the reopening auction is about to execute.
 
 ### Benchmarks
 
@@ -153,10 +157,10 @@ imbalance = bid size / (bid size + ask size), 1-cent spreads, 09:30-16:00; share
   0.7-0.8      66.9% (  186958)     90.3% (  165782)
   0.8-0.9      71.4% (  341674)     93.6% (  342170)
   0.9-1.0      72.3% (  395535)     93.7% (  530132)
-wall time       55.497 s
-throughput      4.8 M msgs/s (206.5 ns/msg avg)
-feed latency    p50 100  p99 781  p99.9 1994  max 1079775 ns (decode + book + publish; includes one clock read)
-queue latency   p50 1187  p99 1362567  p99.9 4472739  max 37890921 ns (publish to consume; includes one clock read)
+wall time       54.534 s
+throughput      4.9 M msgs/s (202.9 ns/msg avg)
+feed latency    p50 91  p99 812  p99.9 2164  max 3186414 ns (decode + book + publish; includes one clock read)
+queue latency   p50 1172  p99 1347450  p99.9 2269596  max 29607715 ns (publish to consume; includes one clock read)
 ```
 
 The AAPL line is empty because the book is empty at 20:00.
@@ -176,6 +180,8 @@ The AAPL line is empty because the book is empty at 20:00.
   missing range is requested (and re-requested after 20 ms), and messages reach
   the book exactly once, in order. Packets from another session are ignored, and
   the receiver gives up with an error if the sender is silent for 5 seconds.
+- **Pipeline** (`src/pipeline.hpp`): the feed side (books, publishing, conflation) and the
+  consumer side (latest BBO, imbalance study), shared by the binary and the tests.
 - **Export** (`src/export.hpp`): per-minute activity, message mix and depth snapshots as JSON
   for the demo page.
 - **Conflation**: a per-symbol dirty flag plus a FIFO of dirty symbols; each
@@ -216,6 +222,10 @@ erases in a small table, so probe runs collide, wrap and trigger growth. Truncat
 and zero-length messages must be skipped and counted. `make sanitize` runs the
 tests under AddressSanitizer and UBSan and the two-thread pipeline under
 ThreadSanitizer; all three are clean.
+
+Further tests cover the `F` and `C` message layouts, the integrity counters (a reused
+order reference, a reduction against the wrong stock), conflation through a 4-slot
+queue, and the JSON export.
 
 ## Not done
 

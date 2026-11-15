@@ -32,7 +32,7 @@ public:
         auto it = m_.find(k);
         return it == m_.end() ? nullptr : &it->second;
     }
-    void insert(uint64_t k, Order o) { m_.emplace(k, o); }
+    bool insert(uint64_t k, Order o) { return m_.emplace(k, o).second; }  // false if k is already present
     void erase(uint64_t k, Order*) { m_.erase(k); }
     void prefetch(uint64_t) const {}
     size_t size() const { return m_.size(); }
@@ -54,10 +54,13 @@ class OrderMap {
         mask_ = cap - 1;
         shift_ = 64 - __builtin_ctzll(cap);
     }
-    void place(uint64_t k, Order o) {
+    // Returns false, leaving the table unchanged, if k is already present.
+    bool place(uint64_t k, Order o) {
         size_t i = home(k);
-        while (s_[i].key) i = (i + 1) & mask_;
+        for (; s_[i].key; i = (i + 1) & mask_)
+            if (s_[i].key == k) return false;
         s_[i] = {k, o};
+        return true;
     }
     void grow() {  // rehash stalls the feed thread; size the map up front to avoid it
         std::vector<Slot> old = std::move(s_);
@@ -78,10 +81,11 @@ public:
         size_t i = find_idx(k);
         return i == SIZE_MAX ? nullptr : &s_[i].val;
     }
-    void insert(uint64_t k, Order o) {
+    bool insert(uint64_t k, Order o) {            // false if k is already present
         if ((size_ + 1) * 2 > s_.size()) grow();  // max load factor 0.5
-        place(k, o);
+        if (!place(k, o)) return false;
         ++size_;
+        return true;
     }
     // `o` must be the pointer find(k) returned; it locates the slot without probing again.
     void erase(uint64_t, Order* o) {
@@ -114,9 +118,11 @@ class Side {
 
 public:
     void add(int64_t k, uint32_t q) { m_[k] += q; }
-    void sub(int64_t k, uint32_t q) {
+    bool sub(int64_t k, uint32_t q) {  // false if the level is missing or smaller than q
         auto it = m_.find(k);
-        if (it != m_.end() && (it->second -= q) == 0) m_.erase(it);
+        if (it == m_.end() || it->second < q) return false;
+        if ((it->second -= q) == 0) m_.erase(it);
+        return true;
     }
     Level best() const { return m_.empty() ? Level{} : Level{m_.rbegin()->first, m_.rbegin()->second}; }
     void prefetch() const {}
@@ -148,9 +154,11 @@ public:
         else
             v_.insert(v_.begin() + i, Level{k, q});
     }
-    void sub(int64_t k, uint32_t q) {
-        size_t i = pos(k);
-        if (i && v_[i - 1].key == k && (v_[i - 1].qty -= q) == 0) v_.erase(v_.begin() + i - 1);
+    bool sub(int64_t k, uint32_t q) {  // false if the level is missing or smaller than q
+        const size_t i = pos(k);
+        if (!i || v_[i - 1].key != k || v_[i - 1].qty < q) return false;
+        if ((v_[i - 1].qty -= q) == 0) v_.erase(v_.begin() + i - 1);
+        return true;
     }
     Level best() const { return v_.empty() ? Level{} : v_.back(); }
     void prefetch() const {
@@ -181,7 +189,7 @@ class Books {
     bool take(uint16_t loc, uint64_t ref, Order* o, uint32_t shares) {
         Side& sd = side(loc, o->side());
         const Level before = sd.best();
-        sd.sub(key(o->side(), o->price), shares);
+        if (!sd.sub(key(o->side(), o->price), shares)) ++inconsistent;
         if (shares == o->qty)
             orders_.erase(ref, o);
         else
@@ -190,8 +198,13 @@ class Books {
     }
 
 public:
-    uint64_t unknown_refs = 0;  // messages naming an order we never saw; 0 on a clean feed
-    uint64_t oversize = 0;      // orders too large for Order::qty; 0 or the books are wrong
+    uint64_t unknown_refs = 0;    // messages naming an order we never saw; 0 on a clean feed
+    uint64_t oversize = 0;        // orders too large for Order::qty; 0 or the books are wrong
+    uint64_t duplicate_refs = 0;  // adds reusing a live reference number; ignored
+    // An order's price level was missing or too small when the order was reduced. The order
+    // map does not store the locate (that would grow every slot past 16 bytes), so this is
+    // also how a message carrying the wrong locate for its order shows up.
+    uint64_t inconsistent = 0;
 
     explicit Books(size_t order_capacity_pow2 = 1 << 20) : orders_(order_capacity_pow2), syms_(itch::kLocates) {}
 
@@ -203,8 +216,11 @@ public:
         }
         Side& sd = side(loc, s);
         const Level before = sd.best();
+        if (!orders_.insert(ref, Order{px, shares, s})) {
+            ++duplicate_refs;
+            return false;
+        }
         oversize += shares >> 31;
-        orders_.insert(ref, Order{px, shares, s});
         sd.add(key(s, px), shares);
         return !(sd.best() == before);
     }

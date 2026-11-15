@@ -1,5 +1,5 @@
 CXX      ?= g++
-CXXFLAGS ?= -std=c++20 -O3 -march=native -Wall -Wextra -Iinclude -pthread
+CXXFLAGS ?= -std=c++20 -O3 -march=native -Wall -Wextra -Iinclude -Isrc -pthread
 HDRS     := $(wildcard include/*.hpp src/*.hpp)
 
 all: build/itchfh build/itchfh_baseline build/moldsend
@@ -22,9 +22,9 @@ test: build/test build/test_baseline
 
 # Tests under AddressSanitizer + UBSan, and the two-thread pipeline under ThreadSanitizer.
 sanitize: build/test | build
-	$(CXX) -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Iinclude -pthread tests/test.cpp -o build/test_asan
+	$(CXX) -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Iinclude -Isrc -pthread tests/test.cpp -o build/test_asan
 	./build/test_asan
-	$(CXX) -std=c++20 -O1 -g -fsanitize=thread -Iinclude -pthread src/main.cpp -o build/itchfh_tsan
+	$(CXX) -std=c++20 -O1 -g -fsanitize=thread -Iinclude -Isrc -pthread src/main.cpp -o build/itchfh_tsan
 	./build/test --emit build/synth.itch
 	# setarch -R: older TSan runtimes abort under high-entropy ASLR
 	setarch -R ./build/itchfh_tsan --queue 64 --conflate build/synth.itch > /dev/null

@@ -3,8 +3,12 @@
 //  2. differential: random ITCH stream through decoder + Books vs. a brute-force reference
 //  3. SPSC queue: ordering and completeness across two threads
 //  4. order map vs std::unordered_map under churn; malformed input is skipped and counted
+//  5. integrity counters, conflation, and the JSON export
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <random>
 #include <string>
@@ -13,7 +17,9 @@
 #include <vector>
 
 #include "book.hpp"
+#include "export.hpp"
 #include "itch.hpp"
+#include "pipeline.hpp"
 #include "spsc.hpp"
 
 #define CHECK(c)                                                              \
@@ -278,6 +284,114 @@ static void test_malformed() {
     CHECK(!books.add(1, 0, 'B', 100, 10000) && books.unknown_refs == 1 && books.live_orders() == 0);  // ref 0
 }
 
+// 'F' (add with firm ID) and 'C' (executed at a different price) share handlers with 'A'
+// and 'E' but have their own layouts.
+static void test_decoder_variants() {
+    struct H {
+        int adds = 0, reduces = 0;
+        void directory(uint16_t, const char*) {}
+        void add(uint16_t loc, uint64_t, uint64_t ref, char side, uint32_t sh, uint32_t px) {
+            ++adds;
+            CHECK(loc == 3 && ref == 77 && side == 'B' && sh == 250 && px == 123400);
+        }
+        void reduce(uint16_t loc, uint64_t, uint64_t ref, uint32_t sh) {
+            ++reduces;
+            CHECK(loc == 3 && ref == 77 && sh == 40);
+        }
+        void remove(uint16_t, uint64_t, uint64_t) { CHECK(false); }
+        void replace(uint16_t, uint64_t, uint64_t, uint64_t, uint32_t, uint32_t) { CHECK(false); }
+    } h;
+    Buf b;
+    header(b, 40, 'F', 3, 1);
+    put(b, 77, 8);
+    b.push_back('B');
+    put(b, 250, 4);
+    for (char c : {'T', 'E', 'S', 'T', ' ', ' ', ' ', ' '}) b.push_back(c);
+    put(b, 123400, 4);
+    for (char c : {'M', 'P', 'I', 'D'}) b.push_back(c);
+    header(b, 36, 'C', 3, 2);
+    put(b, 77, 8);
+    put(b, 40, 4);
+    put(b, 0, 8);       // match number
+    b.push_back('Y');   // printable
+    put(b, 123500, 4);  // execution price
+    uint64_t bad = 0;
+    CHECK(itch::for_each_message(b.data(), b.size(), [&](const uint8_t* m) { itch::decode(m, h); }, &bad) == b.size());
+    CHECK(h.adds == 1 && h.reduces == 1 && bad == 0);
+}
+
+// Feed-level integrity counters: a reused reference and a reduce carrying the wrong locate.
+static void test_integrity_counters() {
+    Books books(1 << 4);
+    CHECK(books.add(1, 5, 'B', 100, 10000));
+    CHECK(!books.add(1, 5, 'B', 900, 10100) && books.duplicate_refs == 1);  // same ref again: ignored
+    CHECK(books.top(1).bid_px == 10000 && books.top(1).bid_qty == 100 && books.live_orders() == 1);
+    books.reduce(2, 5, 40);  // order 5 lives in locate 1; locate 2 has no such level
+    CHECK(books.inconsistent == 1);
+}
+
+// Conflation: with a 4-slot queue drained only now and then, most updates must be merged,
+// and once everything is flushed the consumer's view must still equal the books.
+static void test_conflation() {
+    SpscQueue<BboEvent> queue(4);
+    Feed feed{.out = queue, .conflate = true};
+    std::vector<Top> last(itch::kLocates);
+    auto drain = [&] {
+        for (BboEvent e; queue.pop(e);) last[e.locate] = e.top;
+    };
+    std::mt19937 rng(3);
+    for (uint64_t i = 1; i <= 5000; ++i) {
+        const bool bid = rng() % 2;
+        const uint32_t px = bid ? 10000 - rng() % 5 : 10001 + rng() % 5;
+        feed.add(uint16_t(1 + rng() % 8), i, i, bid ? 'B' : 'S', 100, px);
+        if (i % 97 == 0) drain();
+    }
+    while (!feed.backlog.empty()) {
+        drain();
+        feed.flush(0);
+    }
+    drain();
+    CHECK(feed.conflated > 0 && feed.published < feed.changes);
+    for (size_t loc = 0; loc < itch::kLocates; ++loc) CHECK(last[loc] == feed.books.top(uint16_t(loc)));
+}
+
+// Export: counts and depth snapshots land in the JSON.
+static void test_export() {
+    Books books(1 << 4);
+    Exporter exporter;
+    Buf b;
+    const uint64_t open = itch::kRegularOpenNs;
+    enc_add(b, 1, open + 1, 1, 'B', 100, 10000);
+    enc_add(b, 1, open + 2, 2, 'S', 300, 10100);
+    enc_exec(b, 1, open + 6'000'000'000ull, 2, 50);  // six seconds later: a second snapshot is due
+    struct H {
+        Books& books;
+        void directory(uint16_t, const char*) {}
+        void add(uint16_t l, uint64_t, uint64_t r, char s, uint32_t sh, uint32_t px) { books.add(l, r, s, sh, px); }
+        void reduce(uint16_t l, uint64_t, uint64_t r, uint32_t sh) { books.reduce(l, r, sh); }
+        void remove(uint16_t, uint64_t, uint64_t) {}
+        void replace(uint16_t, uint64_t, uint64_t, uint64_t, uint32_t, uint32_t) {}
+    } h{books};
+    itch::for_each_message(b.data(), b.size(), [&](const uint8_t* m) {
+        exporter.record(m, books, 1, 0);
+        itch::decode(m, h);
+    });
+    const std::vector<uint32_t> none;
+    const uint64_t signal[10][4] = {};
+    const std::vector<std::string> symbols(itch::kLocates, "X");
+    const std::string watch = "X";
+    const std::string path = (std::filesystem::temp_directory_path() / "peregrine_test_export.json").string();
+    CHECK(exporter.write(path.c_str(), books, {3, 3, 0, 0, 0, open, 2, 0.0, true, none, none, signal, symbols, watch}));
+    std::ifstream in(path);
+    const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    CHECK(json.find("\"types\":{\"A\":2,\"E\":1}") != std::string::npos);
+    // first snapshot: taken before the first add, so the book is empty; second: both sides present
+    CHECK(json.find("\"snaps\":[34200,0,0,") != std::string::npos);
+    CHECK(json.find(",34206,10000,100,") != std::string::npos);
+    CHECK(json.find(",10100,300,") != std::string::npos);
+    std::remove(path.c_str());
+}
+
 int main(int argc, char** argv) {
     if (argc == 3 && std::string(argv[1]) == "--emit") {  // write a synthetic ITCH file and exit
         std::FILE* f = std::fopen(argv[2], "wb");
@@ -287,8 +401,12 @@ int main(int argc, char** argv) {
         return 0;
     }
     test_decoder();
+    test_decoder_variants();
     test_order_map();
     test_malformed();
+    test_integrity_counters();
+    test_conflation();
+    test_export();
     for (unsigned seed = 1; seed <= 5; ++seed) test_differential(seed, 20000);
     test_spsc();
     std::puts("all tests passed");
