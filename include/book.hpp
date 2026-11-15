@@ -1,8 +1,11 @@
 // Full-depth order books for every symbol on the feed, keyed by ITCH stock locate.
 // Build with -DBASELINE to swap in std::unordered_map + std::map for comparison.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <vector>
+
+#include "itch.hpp"
 #ifdef BASELINE
 #include <map>
 #include <unordered_map>
@@ -30,7 +33,7 @@ public:
         return it == m_.end() ? nullptr : &it->second;
     }
     void insert(uint64_t k, Order o) { m_.emplace(k, o); }
-    void erase(uint64_t k) { m_.erase(k); }
+    void erase(uint64_t k, Order*) { m_.erase(k); }
     void prefetch(uint64_t) const {}
     size_t size() const { return m_.size(); }
 };
@@ -80,9 +83,10 @@ public:
         place(k, o);
         ++size_;
     }
-    void erase(uint64_t k) {
-        size_t i = find_idx(k);
-        if (i == SIZE_MAX) return;
+    // `o` must be the pointer find(k) returned; it locates the slot without probing again.
+    void erase(uint64_t, Order* o) {
+        const auto* slot = reinterpret_cast<const Slot*>(reinterpret_cast<const char*>(o) - offsetof(Slot, val));
+        size_t i = size_t(slot - s_.data());
         for (size_t j = (i + 1) & mask_; s_[j].key; j = (j + 1) & mask_) {
             // s_[j] may move back into the hole at i unless its home lies in (i, j]
             if (((j - home(s_[j].key)) & mask_) >= ((j - i) & mask_)) {
@@ -173,14 +177,30 @@ class Books {
     static int64_t key(char side, uint32_t px) { return side == 'B' ? int64_t(px) : -int64_t(px); }
     Side& side(uint16_t loc, char s) { return s == 'B' ? syms_[loc].bid : syms_[loc].ask; }
 
+    // Removes `shares` (at most the order's size) from a live order and its price level.
+    bool take(uint16_t loc, uint64_t ref, Order* o, uint32_t shares) {
+        Side& sd = side(loc, o->side());
+        const Level before = sd.best();
+        sd.sub(key(o->side(), o->price), shares);
+        if (shares == o->qty)
+            orders_.erase(ref, o);
+        else
+            o->qty -= shares;
+        return !(sd.best() == before);
+    }
+
 public:
     uint64_t unknown_refs = 0;  // messages naming an order we never saw; 0 on a clean feed
     uint64_t oversize = 0;      // orders too large for Order::qty; 0 or the books are wrong
 
-    explicit Books(size_t order_capacity_pow2 = 1 << 20) : orders_(order_capacity_pow2), syms_(65536) {}
+    explicit Books(size_t order_capacity_pow2 = 1 << 20) : orders_(order_capacity_pow2), syms_(itch::kLocates) {}
 
     // Each mutator returns true if the symbol's best bid/offer (price or size) changed.
     bool add(uint16_t loc, uint64_t ref, char s, uint32_t shares, uint32_t px) {
+        if (ref == 0) {  // reserved as the order map's empty-slot marker; never sent by the exchange
+            ++unknown_refs;
+            return false;
+        }
         Side& sd = side(loc, s);
         const Level before = sd.best();
         oversize += shares >> 31;
@@ -194,12 +214,7 @@ public:
             ++unknown_refs;
             return false;
         }
-        if (shares > o->qty) shares = o->qty;
-        Side& sd = side(loc, o->side());
-        const Level before = sd.best();
-        sd.sub(key(o->side(), o->price), shares);
-        if ((o->qty -= shares) == 0) orders_.erase(ref);
-        return !(sd.best() == before);
+        return take(loc, ref, o, shares < o->qty ? shares : o->qty);
     }
     bool remove(uint16_t loc, uint64_t ref) {
         Order* o = orders_.find(ref);
@@ -207,7 +222,7 @@ public:
             ++unknown_refs;
             return false;
         }
-        return reduce(loc, ref, o->qty);
+        return take(loc, ref, o, o->qty);
     }
     bool replace(uint16_t loc, uint64_t old_ref, uint64_t new_ref, uint32_t shares, uint32_t px) {
         Order* o = orders_.find(old_ref);
@@ -217,7 +232,7 @@ public:
         }
         const char s = o->side();  // replace keeps side, loses queue priority
         const Level before = side(loc, s).best();
-        reduce(loc, old_ref, o->qty);
+        take(loc, old_ref, o, o->qty);
         add(loc, new_ref, s, shares, px);
         return !(side(loc, s).best() == before);
     }

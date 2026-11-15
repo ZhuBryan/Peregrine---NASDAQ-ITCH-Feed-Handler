@@ -3,6 +3,7 @@
 // touches no cache line owned by the other thread.
 #pragma once
 #include <atomic>
+#include <cassert>
 #include <cstddef>
 #include <memory>
 
@@ -10,7 +11,9 @@ template <class T>
 class SpscQueue {
 public:
     explicit SpscQueue(size_t capacity_pow2)
-        : buf_(new T[capacity_pow2]), cap_(capacity_pow2), mask_(capacity_pow2 - 1) {}
+        : buf_(new T[capacity_pow2]), cap_(capacity_pow2), mask_(capacity_pow2 - 1) {
+        assert(capacity_pow2 >= 2 && (capacity_pow2 & mask_) == 0);
+    }
 
     bool push(const T& v) {  // producer thread only
         const size_t h = head_.load(std::memory_order_relaxed);

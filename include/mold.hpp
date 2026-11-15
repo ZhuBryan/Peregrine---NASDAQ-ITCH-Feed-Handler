@@ -32,6 +32,8 @@ class MoldReceiver {
     char session_[10] = {};
 
     std::chrono::steady_clock::time_point last_request_{};
+    static constexpr std::chrono::milliseconds kRetry{20};  // re-request an open gap this often
+    static constexpr std::chrono::seconds kIdleLimit{5};    // give up if the sender is silent this long
 
     void request(uint64_t end_seq) {
         if (!have_src_) return;
@@ -57,7 +59,10 @@ class MoldReceiver {
             const size_t len = itch::be16(buf + off);
             if (off + 2 + len > n) break;
             if (seq + i == next_) {
-                on_msg(buf + off + 2);
+                if (itch::well_formed(buf + off + 2, len))
+                    on_msg(buf + off + 2);
+                else
+                    ++malformed;
                 ++next_;
                 recovered += recovering;
             } else
@@ -67,14 +72,14 @@ class MoldReceiver {
     }
 
 public:
-    uint64_t packets = 0, requests = 0, recovered = 0, duplicates = 0, max_buffered = 0;
+    uint64_t packets = 0, requests = 0, recovered = 0, duplicates = 0, max_buffered = 0, malformed = 0;
 
     MoldReceiver(const char* ip, uint16_t port) {
         fd_ = socket(AF_INET, SOCK_DGRAM, 0);
         int one = 1, rcvbuf = 16 << 20;
         setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
         setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof rcvbuf);
-        timeval tv{0, 20000};  // 20 ms: retransmit-request retry interval
+        timeval tv{0, 20000};  // wake at least every 20 ms so retries and the idle limit are checked
         setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
         sockaddr_in a{};
         a.sin_family = AF_INET;
@@ -85,7 +90,10 @@ public:
             std::exit(1);
         }
         in_addr group{};
-        inet_pton(AF_INET, ip, &group);
+        if (inet_pton(AF_INET, ip, &group) != 1) {
+            std::fprintf(stderr, "bad address: %s\n", ip);
+            std::exit(1);
+        }
         if ((ntohl(group.s_addr) >> 28) == 0xE) {  // 224.0.0.0/4: join the multicast group
             ip_mreq mreq{group, {htonl(INADDR_ANY)}};
             if (setsockopt(fd_, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof mreq) != 0) {
@@ -97,17 +105,21 @@ public:
     ~MoldReceiver() { close(fd_); }
 
     // Blocks until the end-of-session packet has been seen and every message delivered.
+    // Returns false if the sender goes silent for kIdleLimit before that.
     template <class F>
-    void run(F&& on_msg) {
+    bool run(F&& on_msg) {
+        using namespace std::chrono;
         std::vector<uint8_t> buf(65536);
         uint64_t end_seq = 0;  // sequence number one past the last message, once known
         bool gap = false;
+        auto last_packet = steady_clock::now();
         for (;;) {
             sockaddr_in from{};
             socklen_t fl = sizeof from;
             const ssize_t n = recvfrom(fd_, buf.data(), buf.size(), 0, reinterpret_cast<sockaddr*>(&from), &fl);
-            if (n < 0) {  // timeout: the request or its reply may itself have been lost
-                if (gap) request(end_seq);
+            if (n < 0) {  // receive timeout
+                if (have_src_ && steady_clock::now() - last_packet > kIdleLimit) return false;
+                if (gap) request(end_seq);  // the request or its reply may itself have been lost
                 continue;
             }
             if (n < 20) continue;
@@ -115,7 +127,10 @@ public:
                 src_ = from;
                 have_src_ = true;
                 std::memcpy(session_, buf.data(), 10);
+            } else if (std::memcmp(session_, buf.data(), 10) != 0) {
+                continue;  // another session on the same group
             }
+            last_packet = steady_clock::now();
             const uint64_t seq = itch::be64(buf.data() + 10);
             const uint16_t count = itch::be16(buf.data() + 18);
             if (count == 0xFFFF) {
@@ -125,8 +140,7 @@ public:
                 if (seq > next_) {  // something before this packet is missing
                     pending_.emplace(seq, std::vector<uint8_t>(buf.begin(), buf.begin() + n));
                     if (pending_.size() > max_buffered) max_buffered = pending_.size();
-                    // Re-request if the hole is still open after 20 ms: the request or reply was lost.
-                    if (!gap || std::chrono::steady_clock::now() - last_request_ > std::chrono::milliseconds(20)) {
+                    if (!gap) {
                         gap = true;
                         request(end_seq);
                     }
@@ -140,11 +154,13 @@ public:
                     if (gap) request(end_seq);  // next hole
                 }
             }
-            if (end_seq && next_ >= end_seq) return;
-            if (end_seq && !gap) {
+            if (end_seq && next_ >= end_seq) return true;
+            if (end_seq && !gap) {  // the tail of the session was lost
                 gap = true;
                 request(end_seq);
-            }  // tail of the session was lost
+            } else if (gap && steady_clock::now() - last_request_ > kRetry) {
+                request(end_seq);  // still open: the request or its reply was lost
+            }
         }
     }
 };

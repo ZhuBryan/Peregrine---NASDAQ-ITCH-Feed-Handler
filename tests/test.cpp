@@ -2,12 +2,14 @@
 //  1. decoder: known bytes -> known fields
 //  2. differential: random ITCH stream through decoder + Books vs. a brute-force reference
 //  3. SPSC queue: ordering and completeness across two threads
+//  4. order map vs std::unordered_map under churn; malformed input is skipped and counted
 #include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <random>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "book.hpp"
@@ -210,6 +212,72 @@ static void test_spsc() {
     CHECK(!q.pop(v));
 }
 
+// OrderMap against std::unordered_map under heavy insert/erase churn in a small table,
+// so probe runs collide, wrap around the end of the array, and the table grows.
+static void test_order_map() {
+    std::mt19937_64 rng(7);
+    OrderMap map(1 << 3);
+    std::unordered_map<uint64_t, uint32_t> ref;
+    std::vector<uint64_t> keys;
+    for (int i = 0; i < 200000; ++i) {
+        if (keys.empty() || rng() % 100 < 52) {
+            const uint64_t k = (rng() % 4096) * 8 + 1;  // clustered keys
+            if (ref.count(k)) continue;
+            const uint32_t px = uint32_t(rng());
+            map.insert(k, Order{px, 100, 'B'});
+            ref[k] = px;
+            keys.push_back(k);
+        } else {
+            const size_t at = rng() % keys.size();
+            const uint64_t k = keys[at];
+            keys[at] = keys.back();
+            keys.pop_back();
+            Order* o = map.find(k);
+            CHECK(o && o->price == ref[k]);
+            map.erase(k, o);
+            ref.erase(k);
+            CHECK(!map.find(k));
+        }
+        CHECK(map.size() == ref.size());
+        if (i % 1000 == 0)
+            for (const auto& [k, px] : ref) CHECK(map.find(k) && map.find(k)->price == px);
+    }
+}
+
+// Messages too short for their type must be skipped and counted, never decoded.
+static void test_malformed() {
+    struct H {
+        int adds = 0;
+        void directory(uint16_t, const char*) {}
+        void add(uint16_t, uint64_t, uint64_t, char, uint32_t, uint32_t) { ++adds; }
+        void reduce(uint16_t, uint64_t, uint64_t, uint32_t) { CHECK(false); }
+        void remove(uint16_t, uint64_t, uint64_t) { CHECK(false); }
+        void replace(uint16_t, uint64_t, uint64_t, uint64_t, uint32_t, uint32_t) { CHECK(false); }
+    } h;
+    Buf b;
+    put(b, 0, 2);  // zero-length message
+    put(b, 5, 2);  // an 'E' with only 5 bytes
+    for (char c : {'E', 'x', 'x', 'x', 'x'}) b.push_back(uint8_t(c));
+    header(b, 12, 'D', 1, 0);  // a 'D' cut off inside its order reference
+    b.push_back(0);
+    enc_add(b, 1, 0, 42, 'B', 100, 10000);  // one good message after the bad ones
+    for (bool lookahead : {false, true}) {
+        uint64_t bad = 0;
+        h.adds = 0;
+        auto f = [&](const uint8_t* m) { itch::decode(m, h); };
+        auto peek = [&](const uint8_t* m) {
+            uint16_t loc;
+            uint64_t ref;
+            itch::peek_order(m, loc, ref);
+        };
+        const size_t used = lookahead ? itch::for_each_message_lookahead(b.data(), b.size(), 2, peek, peek, f, &bad)
+                                      : itch::for_each_message(b.data(), b.size(), f, &bad);
+        CHECK(used == b.size() && bad == 3 && h.adds == 1);
+    }
+    Books books(1 << 4);
+    CHECK(!books.add(1, 0, 'B', 100, 10000) && books.unknown_refs == 1 && books.live_orders() == 0);  // ref 0
+}
+
 int main(int argc, char** argv) {
     if (argc == 3 && std::string(argv[1]) == "--emit") {  // write a synthetic ITCH file and exit
         std::FILE* f = std::fopen(argv[2], "wb");
@@ -219,6 +287,8 @@ int main(int argc, char** argv) {
         return 0;
     }
     test_decoder();
+    test_order_map();
+    test_malformed();
     for (unsigned seed = 1; seed <= 5; ++seed) test_differential(seed, 20000);
     test_spsc();
     std::puts("all tests passed");

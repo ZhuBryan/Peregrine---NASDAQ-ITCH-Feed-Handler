@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -62,13 +63,13 @@ struct Feed {
     Books books{1 << 23};  // pre-sized so the order map never rehashes mid-session
     SpscQueue<BboEvent>& out;
     bool conflate;
-    std::vector<std::string> symbols = std::vector<std::string>(65536);
+    std::vector<std::string> symbols = std::vector<std::string>(itch::kLocates);
     std::string watch_sym = {};  // --export symbol
     int watch_loc = -1;
     uint64_t book_msgs = 0, changes = 0, published = 0, conflated = 0, last_ts = 0;
 
     // Conflation state: symbols whose latest BBO has not been sent yet, in arrival order.
-    std::vector<uint8_t> dirty = std::vector<uint8_t>(65536);
+    std::vector<uint8_t> dirty = std::vector<uint8_t>(itch::kLocates);
     std::vector<uint16_t> backlog = {};
     size_t backlog_head = 0;
 
@@ -125,8 +126,8 @@ struct Feed {
     }
 };
 
-static void print_pcts(const char* label, std::vector<uint32_t>& v, const char* note) {
-    std::sort(v.begin(), v.end());
+// `v` must be sorted.
+static void print_pcts(const char* label, const std::vector<uint32_t>& v, const char* note) {
     auto pct = [&](double p) { return v.empty() ? 0u : v[std::min(v.size() - 1, size_t(p * v.size()))]; };
     std::printf("%s p50 %u  p99 %u  p99.9 %u  max %u ns%s\n", label, pct(0.50), pct(0.99), pct(0.999),
                 v.empty() ? 0u : v.back(), note);
@@ -167,6 +168,9 @@ static Options parse_args(int argc, char** argv) {
         else if (a == "--udp" && i + 2 < argc) {
             opt.udp_ip = argv[++i];
             opt.udp_port = std::atoi(argv[++i]);
+        } else if (a.size() > 1 && a[0] == '-') {
+            std::fprintf(stderr, "unknown or incomplete option: %s\n", a.c_str());
+            std::exit(1);
         } else if (!opt.file && !opt.udp_ip)
             opt.file = argv[i];
         else
@@ -197,14 +201,14 @@ int main(int argc, char** argv) {
 
     // Consumer: stands in for a strategy. Keeps the latest BBO per symbol.
     std::atomic<bool> done{false};
-    std::vector<Top> last(65536);
+    std::vector<Top> last(itch::kLocates);
     std::vector<uint32_t> queue_lat;
     uint64_t consumed = 0, crossed = 0;
     // Mid-price moves and how many were up, by imbalance decile measured (a) when the quote
     // was first posted and (b) immediately before it moved. (b) is partly mechanical: a queue
     // that is about to be exhausted is small by construction.
     uint64_t sig0_n[10] = {}, sig0_up[10] = {}, sig_n[10] = {}, sig_up[10] = {};
-    std::vector<uint8_t> quote_start(65536, 255);
+    std::vector<uint8_t> quote_start(itch::kLocates, 255);
     std::thread consumer([&] {
         pin(opt.pin_cons);
         auto handle = [&](const BboEvent& e) {
@@ -255,7 +259,8 @@ int main(int argc, char** argv) {
     // Per-message latency is sampled (1 in 64) so clock reads don't dominate the run.
     pin(opt.pin_feed);
     std::vector<uint32_t> samples;
-    uint64_t msgs = 0;
+    uint64_t msgs = 0, malformed = 0;
+    bool complete = true;  // false if a UDP session ended early
     Exporter exporter;
     const bool exporting = opt.export_path != nullptr;
     auto on_msg = [&](const uint8_t* m) {
@@ -281,7 +286,7 @@ int main(int argc, char** argv) {
             [&](const uint8_t* m) {
                 if (itch::peek_order(m, loc, ref)) feed.books.prefetch_levels(loc);
             },
-            on_msg);
+            on_msg, &malformed);
     };
 
     double secs = 0;
@@ -290,7 +295,12 @@ int main(int argc, char** argv) {
         // uncompressed. Wall time counts processing only, not time blocked on the pipe.
         std::vector<uint8_t> buf(16 << 20);
         size_t have = 0;
-        for (ssize_t n; (n = read(STDIN_FILENO, buf.data() + have, buf.size() - have)) > 0;) {
+        for (ssize_t n; (n = read(STDIN_FILENO, buf.data() + have, buf.size() - have)) != 0;) {
+            if (n < 0) {
+                if (errno == EINTR) continue;
+                std::perror("stdin");
+                break;
+            }
             have += size_t(n);
             const auto t0 = Clock::now();
             const size_t used = replay(buf.data(), have);
@@ -320,7 +330,8 @@ int main(int argc, char** argv) {
     } else {
         MoldReceiver rx(opt.udp_ip, uint16_t(opt.udp_port));
         const auto t0 = Clock::now();
-        rx.run(on_msg);
+        complete = rx.run(on_msg);
+        malformed = rx.malformed;
         feed.finish();
         secs = std::chrono::duration<double>(Clock::now() - t0).count();
         // stderr, so stdout stays comparable with a file replay of the same data
@@ -332,10 +343,12 @@ int main(int argc, char** argv) {
     }
     done.store(true, std::memory_order_release);
     consumer.join();
+    std::sort(samples.begin(), samples.end());
+    std::sort(queue_lat.begin(), queue_lat.end());
 
     // End-to-end check: what the consumer believes must equal the books, for every symbol.
     size_t mismatches = 0;
-    for (size_t loc = 0; loc < 65536; ++loc) mismatches += !(last[loc] == feed.books.top(uint16_t(loc)));
+    for (size_t loc = 0; loc < itch::kLocates; ++loc) mismatches += !(last[loc] == feed.books.top(uint16_t(loc)));
 
     std::printf("messages        %llu (%llu book-changing), feed time up to %02llu:%02llu:%02llu\n",
                 (unsigned long long)msgs, (unsigned long long)feed.book_msgs,
@@ -348,6 +361,8 @@ int main(int argc, char** argv) {
     std::printf("integrity       %llu unknown order refs, %llu crossed BBOs, final consumer state %s\n",
                 (unsigned long long)feed.books.unknown_refs, (unsigned long long)crossed,
                 mismatches ? "MISMATCH" : "matches books");
+    if (malformed) std::printf("WARNING         %llu malformed messages skipped\n", (unsigned long long)malformed);
+    if (!complete) std::printf("WARNING         sender went silent before the end of the session\n");
     if (feed.books.oversize)
         std::printf("WARNING         %llu orders exceeded 2^31 shares; books are not trustworthy\n",
                     (unsigned long long)feed.books.oversize);
@@ -376,7 +391,7 @@ int main(int argc, char** argv) {
     }
     // Timing goes last: everything above is deterministic for a given input.
     std::printf("wall time       %.3f s\n", secs);
-    std::printf("throughput      %.1f M msgs/s (%.1f ns/msg avg)\n", msgs / secs / 1e6, secs * 1e9 / msgs);
+    if (msgs) std::printf("throughput      %.1f M msgs/s (%.1f ns/msg avg)\n", msgs / secs / 1e6, secs * 1e9 / msgs);
     print_pcts("feed latency   ", samples, " (decode + book + publish; includes one clock read)");
     print_pcts("queue latency  ", queue_lat, " (publish to consume; includes one clock read)");
 
@@ -407,5 +422,5 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
-    return mismatches ? 1 : 0;
+    return mismatches || !complete ? 1 : 0;
 }

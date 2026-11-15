@@ -20,7 +20,7 @@ class Exporter {
     std::vector<uint64_t> type_count_ = std::vector<uint64_t>(256);
     std::vector<uint64_t> msgs_ = std::vector<uint64_t>(kMinutes), volume_ = msgs_, live_ = msgs_, bbo_ = msgs_,
                           watch_volume_ = msgs_;
-    std::vector<uint32_t> sym_msgs_ = std::vector<uint32_t>(65536);
+    std::vector<uint32_t> sym_msgs_ = std::vector<uint32_t>(itch::kLocates);
     std::vector<uint32_t> snaps_;  // flat: second-of-day, then kLevels x (price, size) for bids, then asks
     size_t minute_ = 0;
     uint64_t bbo_mark_ = 0, next_snap_ = 0;
@@ -29,6 +29,13 @@ class Exporter {
         live_[minute_] = books.live_orders();
         bbo_[minute_] = bbo_changes - bbo_mark_;
         bbo_mark_ = bbo_changes;
+    }
+    // Symbols and the watch name are printable ASCII; drop anything that would break the JSON.
+    static std::string json_safe(const std::string& in) {
+        std::string out;
+        for (char c : in)
+            if (c >= 0x20 && c != '"' && c != '\\') out += c;
+        return out;
     }
     static uint32_t pct(const std::vector<uint32_t>& sorted, double p) {
         return sorted.empty() ? 0u : sorted[std::min(sorted.size() - 1, size_t(p * sorted.size()))];
@@ -122,7 +129,7 @@ public:
                           [&](uint32_t a, uint32_t b) { return sym_msgs_[a] > sym_msgs_[b]; });
         std::fprintf(f, "\"top\":[");
         for (size_t i = 0; i < top; ++i)
-            std::fprintf(f, "%s[\"%s\",%u]", i ? "," : "", s.symbols[order[i]].c_str(), sym_msgs_[order[i]]);
+            std::fprintf(f, "%s[\"%s\",%u]", i ? "," : "", json_safe(s.symbols[order[i]]).c_str(), sym_msgs_[order[i]]);
 
         std::fprintf(f, "],\"signal\":[");
         for (int b = 0; b < 10; ++b)
@@ -130,7 +137,7 @@ public:
                          (unsigned long long)s.signal[b][1], (unsigned long long)s.signal[b][2],
                          (unsigned long long)s.signal[b][3]);
 
-        std::fprintf(f, "],\"watch\":\"%s\",\"levels\":%zu,\"snaps\":[", s.watch.c_str(), kLevels);
+        std::fprintf(f, "],\"watch\":\"%s\",\"levels\":%zu,\"snaps\":[", json_safe(s.watch).c_str(), kLevels);
         for (size_t i = 0; i < snaps_.size(); ++i) std::fprintf(f, "%s%u", i ? "," : "", snaps_[i]);
         std::fprintf(f, "]}\n");
         return std::fclose(f) == 0;

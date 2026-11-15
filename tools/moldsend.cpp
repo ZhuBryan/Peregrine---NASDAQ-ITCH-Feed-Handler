@@ -39,6 +39,10 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--drop"))
             drop = std::strtoull(argv[i + 1], nullptr, 10);
     }
+    if (pps == 0) {
+        std::fprintf(stderr, "--pps must be at least 1\n");
+        return 1;
+    }
     const int fd = open(argv[1], O_RDONLY);
     struct stat st;
     if (fd < 0 || fstat(fd, &st) != 0) {
