@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 250" role="img" aria-label="Peregrine architecture: inputs, feed thread, queue, strategy thread">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0 0 L10 5 L0 10 Z"/></marker></defs>
+<style>
+  text { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .bg { fill: #fcfcfb; } .box { fill: #ffffff; stroke: #0f1b2d; stroke-width: 1.2; }
+  .grp { fill: none; stroke: #a3aebd; stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .t { fill: #0f1b2d; font-size: 13px; font-weight: 600; } .s { fill: #5b6778; font-size: 11px; }
+  .g { fill: #5b6778; font-size: 10.5px; letter-spacing: 0.08em; }
+  .arrow { fill: none; stroke: #0f1b2d; stroke-width: 1.4; } .head { fill: #0f1b2d; }
+</style>
+<rect class="bg" width="980" height="250"/>
+<rect class="grp" x="200" y="20" width="440" height="210" rx="4"/><text class="g" x="214" y="42">FEED THREAD</text>
+<rect class="grp" x="808" y="20" width="162" height="210" rx="4"/><text class="g" x="822" y="42">STRATEGY THREAD</text>
+<rect class="box" x="10" y="48" width="150" height="58" rx="3"/><text class="t" x="85.0" y="73" text-anchor="middle">Recorded file</text><text class="s" x="85.0" y="91" text-anchor="middle">memory-mapped or stdin</text>
+<rect class="box" x="10" y="144" width="150" height="58" rx="3"/><text class="t" x="85.0" y="169" text-anchor="middle">UDP multicast</text><text class="s" x="85.0" y="187" text-anchor="middle">MoldUDP64, gap recovery</text>
+<rect class="box" x="216" y="96" width="118" height="58" rx="3"/><text class="t" x="275.0" y="121" text-anchor="middle">Decode</text><text class="s" x="275.0" y="139" text-anchor="middle">zero-copy, big-endian</text>
+<rect class="box" x="358" y="96" width="124" height="58" rx="3"/><text class="t" x="420.0" y="121" text-anchor="middle">Order map</text><text class="s" x="420.0" y="139" text-anchor="middle">reference to order</text>
+<rect class="box" x="506" y="96" width="118" height="58" rx="3"/><text class="t" x="565.0" y="121" text-anchor="middle">Price levels</text><text class="s" x="565.0" y="139" text-anchor="middle">per stock, per side</text>
+<rect class="box" x="672" y="96" width="104" height="58" rx="3"/><text class="t" x="724.0" y="121" text-anchor="middle">SPSC queue</text><text class="s" x="724.0" y="139" text-anchor="middle">lock-free ring</text>
+<rect class="box" x="822" y="96" width="134" height="58" rx="3"/><text class="t" x="889.0" y="121" text-anchor="middle">Consumer</text><text class="s" x="889.0" y="139" text-anchor="middle">latest prices, signal</text>
+<path class="arrow" d="M160 77 H188 V116 H214" marker-end="url(#ah)"/>
+<path class="arrow" d="M160 173 H188 V134 H214" marker-end="url(#ah)"/>
+<path class="arrow" d="M334 125 H356" marker-end="url(#ah)"/>
+<path class="arrow" d="M482 125 H504" marker-end="url(#ah)"/>
+<path class="arrow" d="M624 125 H670" marker-end="url(#ah)"/>
+<path class="arrow" d="M776 125 H820" marker-end="url(#ah)"/>
+<text class="s" x="420" y="196" text-anchor="middle">file replay prefetches memory 16 and 8 messages ahead</text>
+<text class="s" x="724" y="178" text-anchor="middle">best-price changes</text>
+</svg>

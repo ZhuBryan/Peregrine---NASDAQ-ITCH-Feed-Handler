@@ -5,11 +5,7 @@ book for every listed symbol, and publishes top-of-book changes to a consumer
 thread over a lock-free SPSC queue. Input is a recorded file or a live MoldUDP64
 stream with gap recovery. Header-only core, no dependencies.
 
-```
-file (mmap) ----\
-                 >-- [feed thread: decode -> order map -> price levels] --SPSC--> [consumer: BBO per symbol, signal study]
-MoldUDP64 (UDP) /         gap detect + retransmit                  backpressure or conflation
-```
+![Architecture: inputs, feed thread, queue, strategy thread](docs/architecture.svg)
 
 ![Throughput and median latency by build](docs/bench.svg)
 
@@ -126,6 +122,37 @@ small by construction. The left-hand column is the meaningful one. Neither is a
 trading result: it is one day, direction only, and ignores the spread, fees
 and queue position. Raw output: `docs/signal_run.txt`.
 
+## Example run
+
+The full session, streamed from the compressed file (2-vCPU VM, sharing cores with `gunzip`):
+
+```
+$ gunzip -c 12302019.NASDAQ_ITCH50.gz | ./build/itchfh --signal --export AAPL docs/data/day.json - AAPL
+messages        268744780 (263241937 book-changing), feed time up to 20:00:00
+bbo changes     124767189, 124767189 published, 124767189 consumed, 0 conflated
+integrity       0 unknown order refs, 905 crossed BBOs, final consumer state matches books
+live orders     0 at end
+AAPL     bid 0 @ 0.0000 | ask 0 @ 0.0000 | depth 0 x 0 levels
+imbalance = bid size / (bid size + ask size), 1-cent spreads, 09:30-16:00; share of next mid moves that were up
+  imbalance   at quote start        just before move
+  0.0-0.1      27.5% (  389473)      6.6% (  532062)
+  0.1-0.2      27.8% (  294855)      6.2% (  303010)
+  0.2-0.3      32.5% (  246731)      9.6% (  220914)
+  0.3-0.4      38.1% (  226004)     16.5% (  179645)
+  0.4-0.5      41.1% (  115755)     23.4% (   79796)
+  0.5-0.6      52.7% (  430742)     56.5% (  326549)
+  0.6-0.7      62.6% (  242314)     85.2% (  190101)
+  0.7-0.8      66.9% (  186958)     90.3% (  165782)
+  0.8-0.9      71.4% (  341674)     93.6% (  342170)
+  0.9-1.0      72.3% (  395535)     93.7% (  530132)
+wall time       55.497 s
+throughput      4.8 M msgs/s (206.5 ns/msg avg)
+feed latency    p50 100  p99 781  p99.9 1994  max 1079775 ns (decode + book + publish; includes one clock read)
+queue latency   p50 1187  p99 1362567  p99.9 4472739  max 37890921 ns (publish to consume; includes one clock read)
+```
+
+The AAPL line is empty because the book is empty at 20:00.
+
 ## Design
 
 - **Zero-copy decode** (`include/itch.hpp`): fields are byte-swapped straight out
@@ -139,6 +166,8 @@ and queue position. Raw output: `docs/signal_run.txt`.
 - **MoldUDP64** (`include/mold.hpp`): packets ahead of a gap are buffered, the
   missing range is requested (and re-requested after 20 ms), and messages reach
   the book exactly once, in order.
+- **Export** (`src/export.hpp`): per-minute activity, message mix and depth snapshots as JSON
+  for the demo page.
 - **Conflation**: a per-symbol dirty flag plus a FIFO of dirty symbols; each
   flushed update carries the newest state.
 
