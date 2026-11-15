@@ -5,6 +5,12 @@
 // Packets that arrive ahead of a gap are buffered, the missing range is re-requested,
 // and messages are always delivered to the callback exactly once and in order.
 #pragma once
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -13,20 +19,14 @@
 #include <map>
 #include <vector>
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
-
 #include "itch.hpp"
 
 class MoldReceiver {
     int fd_;
-    uint64_t next_ = 1;  // next sequence number we need
+    uint64_t next_ = 1;                                 // next sequence number we need
     std::map<uint64_t, std::vector<uint8_t>> pending_;  // packets received ahead of a gap, by first seq
-    // ponytail: unbounded buffer. A production handler caps it and falls back to a
-    // snapshot (GLIMPSE) when a gap is too large to replay.
+    // TODO: this buffer is unbounded. Cap it and fall back to a snapshot (GLIMPSE)
+    // when a gap is too large to replay.
     sockaddr_in src_{};
     bool have_src_ = false;
     char session_[10] = {};
@@ -41,7 +41,8 @@ class MoldReceiver {
         uint8_t r[20];
         std::memcpy(r, session_, 10);
         for (int i = 0; i < 8; ++i) r[10 + i] = uint8_t(next_ >> (8 * (7 - i)));
-        r[18] = uint8_t(want >> 8); r[19] = uint8_t(want);
+        r[18] = uint8_t(want >> 8);
+        r[19] = uint8_t(want);
         // Real MoldUDP64 uses a separate request server; here the sender answers on its own socket.
         sendto(fd_, r, sizeof r, 0, reinterpret_cast<sockaddr*>(&src_), sizeof src_);
         ++requests;
@@ -55,8 +56,12 @@ class MoldReceiver {
         for (uint16_t i = 0; i < count && off + 2 <= n; ++i) {
             const size_t len = itch::be16(buf + off);
             if (off + 2 + len > n) break;
-            if (seq + i == next_) { on_msg(buf + off + 2); ++next_; recovered += recovering; }
-            else ++duplicates;  // already delivered
+            if (seq + i == next_) {
+                on_msg(buf + off + 2);
+                ++next_;
+                recovered += recovering;
+            } else
+                ++duplicates;  // already delivered
             off += 2 + len;
         }
     }
@@ -72,13 +77,21 @@ public:
         timeval tv{0, 20000};  // 20 ms: retransmit-request retry interval
         setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
         sockaddr_in a{};
-        a.sin_family = AF_INET; a.sin_port = htons(port); a.sin_addr.s_addr = htonl(INADDR_ANY);
-        if (fd_ < 0 || bind(fd_, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0) { std::perror("udp bind"); std::exit(1); }
+        a.sin_family = AF_INET;
+        a.sin_port = htons(port);
+        a.sin_addr.s_addr = htonl(INADDR_ANY);
+        if (fd_ < 0 || bind(fd_, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0) {
+            std::perror("udp bind");
+            std::exit(1);
+        }
         in_addr group{};
         inet_pton(AF_INET, ip, &group);
         if ((ntohl(group.s_addr) >> 28) == 0xE) {  // 224.0.0.0/4: join the multicast group
             ip_mreq mreq{group, {htonl(INADDR_ANY)}};
-            if (setsockopt(fd_, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof mreq) != 0) { std::perror("multicast join"); std::exit(1); }
+            if (setsockopt(fd_, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof mreq) != 0) {
+                std::perror("multicast join");
+                std::exit(1);
+            }
         }
     }
     ~MoldReceiver() { close(fd_); }
@@ -98,7 +111,11 @@ public:
                 continue;
             }
             if (n < 20) continue;
-            if (!have_src_) { src_ = from; have_src_ = true; std::memcpy(session_, buf.data(), 10); }
+            if (!have_src_) {
+                src_ = from;
+                have_src_ = true;
+                std::memcpy(session_, buf.data(), 10);
+            }
             const uint64_t seq = itch::be64(buf.data() + 10);
             const uint16_t count = itch::be16(buf.data() + 18);
             if (count == 0xFFFF) {
@@ -109,7 +126,10 @@ public:
                     pending_.emplace(seq, std::vector<uint8_t>(buf.begin(), buf.begin() + n));
                     if (pending_.size() > max_buffered) max_buffered = pending_.size();
                     // Re-request if the hole is still open after 20 ms: the request or reply was lost.
-                    if (!gap || std::chrono::steady_clock::now() - last_request_ > std::chrono::milliseconds(20)) { gap = true; request(end_seq); }
+                    if (!gap || std::chrono::steady_clock::now() - last_request_ > std::chrono::milliseconds(20)) {
+                        gap = true;
+                        request(end_seq);
+                    }
                 } else {
                     deliver(buf.data(), size_t(n), gap, on_msg);
                     while (!pending_.empty() && pending_.begin()->first <= next_) {
@@ -121,7 +141,10 @@ public:
                 }
             }
             if (end_seq && next_ >= end_seq) return;
-            if (end_seq && !gap) { gap = true; request(end_seq); }  // tail of the session was lost
+            if (end_seq && !gap) {
+                gap = true;
+                request(end_seq);
+            }  // tail of the session was lost
         }
     }
 };

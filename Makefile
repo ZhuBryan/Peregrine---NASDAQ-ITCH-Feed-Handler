@@ -1,6 +1,6 @@
 CXX      ?= g++
 CXXFLAGS ?= -std=c++20 -O3 -march=native -Wall -Wextra -Iinclude -pthread
-HDRS     := $(wildcard include/*.hpp)
+HDRS     := $(wildcard include/*.hpp src/*.hpp)
 
 all: build/itchfh build/itchfh_baseline build/moldsend
 

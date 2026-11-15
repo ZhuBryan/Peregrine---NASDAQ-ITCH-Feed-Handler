@@ -22,9 +22,13 @@ struct Order {
 #ifdef BASELINE
 class OrderMap {
     std::unordered_map<uint64_t, Order> m_;
+
 public:
     explicit OrderMap(size_t) {}
-    Order* find(uint64_t k) { auto it = m_.find(k); return it == m_.end() ? nullptr : &it->second; }
+    Order* find(uint64_t k) {
+        auto it = m_.find(k);
+        return it == m_.end() ? nullptr : &it->second;
+    }
     void insert(uint64_t k, Order o) { m_.emplace(k, o); }
     void erase(uint64_t k) { m_.erase(k); }
     void prefetch(uint64_t) const {}
@@ -34,12 +38,19 @@ public:
 // Open-addressing hash map, linear probing, backward-shift deletion (no tombstones).
 // Key 0 marks an empty slot; ITCH order reference numbers are never 0.
 class OrderMap {
-    struct Slot { uint64_t key; Order val; };
+    struct Slot {
+        uint64_t key;
+        Order val;
+    };
     std::vector<Slot> s_;
     size_t mask_, size_ = 0;
     int shift_;
     size_t home(uint64_t k) const { return (k * 0x9E3779B97F4A7C15ull) >> shift_; }
-    void init(size_t cap) { s_.assign(cap, Slot{}); mask_ = cap - 1; shift_ = 64 - __builtin_ctzll(cap); }
+    void init(size_t cap) {
+        s_.assign(cap, Slot{});
+        mask_ = cap - 1;
+        shift_ = 64 - __builtin_ctzll(cap);
+    }
     void place(uint64_t k, Order o) {
         size_t i = home(k);
         while (s_[i].key) i = (i + 1) & mask_;
@@ -48,7 +59,8 @@ class OrderMap {
     void grow() {  // rehash stalls the feed thread; size the map up front to avoid it
         std::vector<Slot> old = std::move(s_);
         init(old.size() * 2);
-        for (auto& x : old) if (x.key) place(x.key, x.val);
+        for (auto& x : old)
+            if (x.key) place(x.key, x.val);
     }
     size_t find_idx(uint64_t k) const {
         for (size_t i = home(k);; i = (i + 1) & mask_) {
@@ -56,9 +68,13 @@ class OrderMap {
             if (!s_[i].key) return SIZE_MAX;
         }
     }
+
 public:
     explicit OrderMap(size_t cap_pow2) { init(cap_pow2); }
-    Order* find(uint64_t k) { size_t i = find_idx(k); return i == SIZE_MAX ? nullptr : &s_[i].val; }
+    Order* find(uint64_t k) {
+        size_t i = find_idx(k);
+        return i == SIZE_MAX ? nullptr : &s_[i].val;
+    }
     void insert(uint64_t k, Order o) {
         if ((size_ + 1) * 2 > s_.size()) grow();  // max load factor 0.5
         place(k, o);
@@ -69,7 +85,10 @@ public:
         if (i == SIZE_MAX) return;
         for (size_t j = (i + 1) & mask_; s_[j].key; j = (j + 1) & mask_) {
             // s_[j] may move back into the hole at i unless its home lies in (i, j]
-            if (((j - home(s_[j].key)) & mask_) >= ((j - i) & mask_)) { s_[i] = s_[j]; i = j; }
+            if (((j - home(s_[j].key)) & mask_) >= ((j - i) & mask_)) {
+                s_[i] = s_[j];
+                i = j;
+            }
         }
         s_[i].key = 0;
         --size_;
@@ -80,7 +99,7 @@ public:
 #endif
 
 struct Level {
-    int64_t key = 0;   // +price for bids, -price for asks, so "best" is always the max key
+    int64_t key = 0;  // +price for bids, -price for asks, so "best" is always the max key
     uint64_t qty = 0;
     bool operator==(const Level&) const = default;
 };
@@ -88,6 +107,7 @@ struct Level {
 #ifdef BASELINE
 class Side {
     std::map<int64_t, uint64_t> m_;
+
 public:
     void add(int64_t k, uint32_t q) { m_[k] += q; }
     void sub(int64_t k, uint32_t q) {
@@ -115,18 +135,23 @@ class Side {
         while (i && v_[i - 1].key > k) --i;
         return i;
     }
+
 public:
     void add(int64_t k, uint32_t q) {
         size_t i = pos(k);
-        if (i && v_[i - 1].key == k) v_[i - 1].qty += q;
-        else v_.insert(v_.begin() + i, Level{k, q});
+        if (i && v_[i - 1].key == k)
+            v_[i - 1].qty += q;
+        else
+            v_.insert(v_.begin() + i, Level{k, q});
     }
     void sub(int64_t k, uint32_t q) {
         size_t i = pos(k);
         if (i && v_[i - 1].key == k && (v_[i - 1].qty -= q) == 0) v_.erase(v_.begin() + i - 1);
     }
     Level best() const { return v_.empty() ? Level{} : v_.back(); }
-    void prefetch() const { if (!v_.empty()) __builtin_prefetch(&v_.back()); }
+    void prefetch() const {
+        if (!v_.empty()) __builtin_prefetch(&v_.back());
+    }
     Level level(size_t n) const { return n < v_.size() ? v_[v_.size() - 1 - n] : Level{}; }  // n-th best, 0 = best
     size_t depth() const { return v_.size(); }
 };
@@ -140,7 +165,9 @@ struct Top {  // price 0 = side empty
 
 class Books {
     OrderMap orders_;
-    struct Sym { Side bid, ask; };
+    struct Sym {
+        Side bid, ask;
+    };
     std::vector<Sym> syms_;  // indexed by stock locate (16-bit)
 
     static int64_t key(char side, uint32_t px) { return side == 'B' ? int64_t(px) : -int64_t(px); }
@@ -163,7 +190,10 @@ public:
     }
     bool reduce(uint16_t loc, uint64_t ref, uint32_t shares) {
         Order* o = orders_.find(ref);
-        if (!o) { ++unknown_refs; return false; }
+        if (!o) {
+            ++unknown_refs;
+            return false;
+        }
         if (shares > o->qty) shares = o->qty;
         Side& sd = side(loc, o->side());
         const Level before = sd.best();
@@ -173,12 +203,18 @@ public:
     }
     bool remove(uint16_t loc, uint64_t ref) {
         Order* o = orders_.find(ref);
-        if (!o) { ++unknown_refs; return false; }
+        if (!o) {
+            ++unknown_refs;
+            return false;
+        }
         return reduce(loc, ref, o->qty);
     }
     bool replace(uint16_t loc, uint64_t old_ref, uint64_t new_ref, uint32_t shares, uint32_t px) {
         Order* o = orders_.find(old_ref);
-        if (!o) { ++unknown_refs; return false; }
+        if (!o) {
+            ++unknown_refs;
+            return false;
+        }
         const char s = o->side();  // replace keeps side, loses queue priority
         const Level before = side(loc, s).best();
         reduce(loc, old_ref, o->qty);
@@ -189,8 +225,14 @@ public:
     // Two-stage prefetch for a message that will arrive shortly (see for_each_message_lookahead).
     // Stage 1: the order's hash slot and the symbol's book header. Stage 2, once the header
     // is in cache: the top-of-book end of both level arrays.
-    void prefetch_order(uint64_t ref, uint16_t loc) const { orders_.prefetch(ref); __builtin_prefetch(&syms_[loc]); }
-    void prefetch_levels(uint16_t loc) const { syms_[loc].bid.prefetch(); syms_[loc].ask.prefetch(); }
+    void prefetch_order(uint64_t ref, uint16_t loc) const {
+        orders_.prefetch(ref);
+        __builtin_prefetch(&syms_[loc]);
+    }
+    void prefetch_levels(uint16_t loc) const {
+        syms_[loc].bid.prefetch();
+        syms_[loc].ask.prefetch();
+    }
 
     Top top(uint16_t loc) const {
         const Level b = syms_[loc].bid.best(), a = syms_[loc].ask.best();

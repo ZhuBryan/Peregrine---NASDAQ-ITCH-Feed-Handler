@@ -7,10 +7,28 @@
 
 namespace itch {
 
-inline uint16_t be16(const uint8_t* p) { uint16_t v; std::memcpy(&v, p, 2); return __builtin_bswap16(v); }
-inline uint32_t be32(const uint8_t* p) { uint32_t v; std::memcpy(&v, p, 4); return __builtin_bswap32(v); }
-inline uint64_t be64(const uint8_t* p) { uint64_t v; std::memcpy(&v, p, 8); return __builtin_bswap64(v); }
-inline uint64_t be48(const uint8_t* p) { return (uint64_t(be16(p)) << 32) | be32(p + 2); }
+// Regular trading session, in nanoseconds since midnight (the unit of ITCH timestamps).
+inline constexpr uint64_t kRegularOpenNs = 34200ull * 1'000'000'000;   // 09:30
+inline constexpr uint64_t kRegularCloseNs = 57600ull * 1'000'000'000;  // 16:00
+
+inline uint16_t be16(const uint8_t* p) {
+    uint16_t v;
+    std::memcpy(&v, p, 2);
+    return __builtin_bswap16(v);
+}
+inline uint32_t be32(const uint8_t* p) {
+    uint32_t v;
+    std::memcpy(&v, p, 4);
+    return __builtin_bswap32(v);
+}
+inline uint64_t be64(const uint8_t* p) {
+    uint64_t v;
+    std::memcpy(&v, p, 8);
+    return __builtin_bswap64(v);
+}
+inline uint64_t be48(const uint8_t* p) {
+    return (uint64_t(be16(p)) << 32) | be32(p + 2);
+}
 
 // Every message starts: type(1) locate(2) tracking(2) timestamp(6, ns since midnight).
 // Handler must provide:
@@ -24,18 +42,26 @@ template <class Handler>
 inline void decode(const uint8_t* m, Handler& h) {
     const uint16_t loc = be16(m + 1);
     switch (m[0]) {
-    case 'A': case 'F':  // add order (F carries an MPID we don't need)
-        h.add(loc, be48(m + 5), be64(m + 11), char(m[19]), be32(m + 20), be32(m + 32)); break;
-    case 'E': case 'C':  // executed (C = at a different price; book impact is the same)
-    case 'X':            // partial cancel
-        h.reduce(loc, be48(m + 5), be64(m + 11), be32(m + 19)); break;
-    case 'D':
-        h.remove(loc, be48(m + 5), be64(m + 11)); break;
-    case 'U':
-        h.replace(loc, be48(m + 5), be64(m + 11), be64(m + 19), be32(m + 27), be32(m + 31)); break;
-    case 'R':
-        h.directory(loc, reinterpret_cast<const char*>(m + 11)); break;
-    default: break;
+        case 'A':
+        case 'F':  // add order (F carries an MPID we don't need)
+            h.add(loc, be48(m + 5), be64(m + 11), char(m[19]), be32(m + 20), be32(m + 32));
+            break;
+        case 'E':
+        case 'C':  // executed (C = at a different price; book impact is the same)
+        case 'X':  // partial cancel
+            h.reduce(loc, be48(m + 5), be64(m + 11), be32(m + 19));
+            break;
+        case 'D':
+            h.remove(loc, be48(m + 5), be64(m + 11));
+            break;
+        case 'U':
+            h.replace(loc, be48(m + 5), be64(m + 11), be64(m + 19), be32(m + 27), be32(m + 31));
+            break;
+        case 'R':
+            h.directory(loc, reinterpret_cast<const char*>(m + 11));
+            break;
+        default:
+            break;
     }
 }
 
@@ -56,9 +82,18 @@ inline size_t for_each_message(const uint8_t* p, size_t n, F&& f) {
 // True for messages that touch an order; yields the order reference and locate without a full decode.
 inline bool peek_order(const uint8_t* m, uint16_t& loc, uint64_t& ref) {
     switch (m[0]) {
-    case 'A': case 'F': case 'E': case 'C': case 'X': case 'D': case 'U':
-        loc = be16(m + 1); ref = be64(m + 11); return true;
-    default: return false;
+        case 'A':
+        case 'F':
+        case 'E':
+        case 'C':
+        case 'X':
+        case 'D':
+        case 'U':
+            loc = be16(m + 1);
+            ref = be64(m + 11);
+            return true;
+        default:
+            return false;
     }
 }
 
@@ -78,8 +113,14 @@ inline size_t for_each_message_lookahead(const uint8_t* p, size_t n, size_t dist
     far_off = near_off;
     for (size_t i = 0; i < dist; ++i) far_off = next(far_off);
     while (complete(off)) {
-        if (complete(far_off)) { far(p + far_off + 2); far_off = next(far_off); }
-        if (complete(near_off)) { near(p + near_off + 2); near_off = next(near_off); }
+        if (complete(far_off)) {
+            far(p + far_off + 2);
+            far_off = next(far_off);
+        }
+        if (complete(near_off)) {
+            near(p + near_off + 2);
+            near_off = next(near_off);
+        }
         f(p + off + 2);
         off = next(off);
     }
