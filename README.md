@@ -13,6 +13,10 @@ MoldUDP64 (UDP) /         gap detect + retransmit                  backpressure 
 
 ![Throughput and median latency by build](docs/bench.svg)
 
+**Demo page:** `docs/index.html` is a self-contained page with an order-book replay and
+charts of the full session. Open it in a browser, or serve it with GitHub Pages from `/docs`.
+Rebuild it with `python3 scripts/build_page.py` after re-exporting `docs/data/day.json`.
+
 ## Results
 
 ### Full trading day
@@ -154,6 +158,8 @@ make
 ./build/itchfh --conflate --queue 64 --work 2000 data/sample_50MB.itch
 gunzip -c day.gz | ./build/itchfh --signal - AAPL > docs/signal_run.txt   # stream without unpacking to disk
 python3 scripts/plot.py docs/signal_run.txt  # regenerate the charts
+gunzip -c day.gz | ./build/itchfh --signal --export AAPL docs/data/day.json -   # data for the demo page
+python3 scripts/build_page.py                # rebuild docs/index.html
 ```
 
 ## Tests

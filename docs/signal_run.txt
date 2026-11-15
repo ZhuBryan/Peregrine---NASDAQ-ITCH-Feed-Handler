@@ -3,9 +3,6 @@ bbo changes     124767189, 124767189 published, 124767189 consumed, 0 conflated
 integrity       0 unknown order refs, 905 crossed BBOs, final consumer state matches books
 live orders     0 at end
 AAPL     bid 0 @ 0.0000 | ask 0 @ 0.0000 | depth 0 x 0 levels
-SPY      bid 0 @ 0.0000 | ask 0 @ 0.0000 | depth 0 x 0 levels
-MSFT     bid 0 @ 0.0000 | ask 0 @ 0.0000 | depth 0 x 0 levels
-TSLA     bid 0 @ 0.0000 | ask 0 @ 0.0000 | depth 0 x 0 levels
 imbalance = bid size / (bid size + ask size), 1-cent spreads, 09:30-16:00; share of next mid moves that were up
   imbalance   at quote start        just before move
   0.0-0.1      27.5% (  389473)      6.6% (  532062)
@@ -18,7 +15,7 @@ imbalance = bid size / (bid size + ask size), 1-cent spreads, 09:30-16:00; share
   0.7-0.8      66.9% (  186958)     90.3% (  165782)
   0.8-0.9      71.4% (  341674)     93.6% (  342170)
   0.9-1.0      72.3% (  395535)     93.7% (  530132)
-wall time       55.266 s
-throughput      4.9 M msgs/s (205.6 ns/msg avg)
-feed latency    p50 120  p99 852  p99.9 2525  max 2235893 ns (decode + book + publish; includes one clock read)
-queue latency   p50 210  p99 580141  p99.9 8052626  max 98491136 ns (publish to consume; includes one clock read)
+wall time       55.497 s
+throughput      4.8 M msgs/s (206.5 ns/msg avg)
+feed latency    p50 100  p99 781  p99.9 1994  max 1079775 ns (decode + book + publish; includes one clock read)
+queue latency   p50 1187  p99 1362567  p99.9 4472739  max 37890921 ns (publish to consume; includes one clock read)

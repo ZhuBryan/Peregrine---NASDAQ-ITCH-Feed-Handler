@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peregrine Feed Handler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: an exchange data sheet. One column of ruled sections, numbers in mono,
+   blue for Peregrine's own measurements, grey for everything it is compared against. */
+:root {
+  --paper: #f3f5f8; --panel: #ffffff; --ink: #0f1b2d; --muted: #5b6778; --rule: #d7dde6;
+  --accent: #1f5fd0; --quiet: #a3aebd; --bid: #0f8a6c; --ask: #c2452d;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #0d131b; --panel: #151d28; --ink: #e8edf3; --muted: #93a0b2; --rule: #273343;
+    --accent: #6a9df7; --quiet: #55647a; --bid: #35b592; --ask: #e6795f;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0d131b; --panel: #151d28; --ink: #e8edf3; --muted: #93a0b2; --rule: #273343;
+  --accent: #6a9df7; --quiet: #55647a; --bid: #35b592; --ask: #e6795f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--paper); color: var(--ink); font: 16px/1.55 var(--body); }
+main { max-width: 1120px; margin: 0 auto; padding: 40px 20px 72px; display: flex; flex-direction: column; gap: 56px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; text-wrap: balance; margin: 0; letter-spacing: 0.005em; }
+h1 { font-size: 46px; line-height: 1.05; }
+h2 { font-size: 28px; line-height: 1.15; }
+h3 { font-size: 17px; line-height: 1.25; }
+p { margin: 0; max-width: 68ch; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small { font-size: 13.5px; }
+header { display: flex; flex-direction: column; gap: 18px; }
+.kicker { font-family: var(--mono); font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.lede { font-size: 19px; }
+.links { display: flex; flex-wrap: wrap; gap: 18px; font-size: 15px; }
+.env { border-left: 3px solid var(--quiet); padding: 2px 0 2px 12px; color: var(--muted); font-size: 14.5px; }
+section { display: flex; flex-direction: column; gap: 20px; }
+.sec-head { display: flex; flex-direction: column; gap: 8px; border-top: 2px solid var(--ink); padding-top: 14px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+.tile { background: var(--panel); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.tile b { font: 500 26px/1.15 var(--mono); font-variant-numeric: tabular-nums; }
+.tile span { font-size: 13.5px; color: var(--muted); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--rule); padding: 18px; display: flex; flex-direction: column; gap: 12px; position: relative; min-width: 0; }
+.card > p { font-size: 14.5px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13.5px; color: var(--muted); }
+.legend i { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 6px; background: var(--quiet); }
+.legend i.a { background: var(--accent); } .legend i.b { background: var(--bid); } .legend i.k { background: var(--ask); }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font: 12px var(--mono); fill: var(--muted); }
+.gridl { stroke: var(--rule); stroke-width: 1; }
+.refl { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; }
+.band { fill: var(--quiet); opacity: 0.13; }
+.s-a { stroke: var(--accent); } .s-q { stroke: var(--quiet); } .s-b { stroke: var(--bid); } .s-k { stroke: var(--ask); }
+.f-a { fill: var(--accent); } .f-q { fill: var(--quiet); } .f-b { fill: var(--bid); } .f-k { fill: var(--ask); }
+.line { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.area { opacity: 0.14; stroke: none; }
+.cross { stroke: var(--ink); stroke-width: 1; opacity: 0; }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--paper); font: 12.5px/1.4 var(--mono); padding: 6px 9px; white-space: nowrap; z-index: 5; display: none; }
+.bars { display: grid; grid-template-columns: max-content 1fr max-content; gap: 7px 12px; align-items: center; font-size: 14px; }
+.bars .lab { color: var(--ink); }
+.bars .lab small { color: var(--muted); font-size: 12.5px; display: block; }
+.bars .track { height: 14px; background: color-mix(in srgb, var(--quiet) 18%, transparent); min-width: 60px; }
+.bars .fill { height: 100%; background: var(--quiet); border-radius: 0 3px 3px 0; }
+.bars .fill.a { background: var(--accent); }
+.bars .val { font: 13.5px var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 500; color: var(--muted); font-size: 13px; }
+td.num, th.num { text-align: right; }
+.scroll { overflow-x: auto; }
+tr.hl td { color: var(--accent); font-weight: 500; }
+/* replay */
+.replay { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 760px) { .replay { grid-template-columns: 1fr; } h1 { font-size: 36px; } }
+.ladder { display: grid; grid-template-columns: 1fr; gap: 3px; font: 14px var(--mono); font-variant-numeric: tabular-nums; }
+.lrow { display: grid; grid-template-columns: 78px 54px 1fr; gap: 8px; align-items: center; height: 24px; }
+.lrow .q { text-align: right; color: var(--muted); }
+.lrow .bar { height: 14px; border-radius: 0 3px 3px 0; min-width: 2px; }
+.lrow.ask .px { color: var(--ask); } .lrow.ask .bar { background: var(--ask); }
+.lrow.bid .px { color: var(--bid); } .lrow.bid .bar { background: var(--bid); }
+.spread { height: 30px; display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); color: var(--muted); font-size: 13px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+.stat b { display: block; font: 500 20px var(--mono); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 13px; color: var(--muted); }
+.gauge { height: 10px; background: var(--ask); display: flex; border-radius: 2px; overflow: hidden; }
+.gauge i { background: var(--bid); display: block; height: 100%; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+button, select { font: 500 14px var(--body); color: var(--ink); background: var(--panel); border: 1px solid var(--ink); padding: 7px 14px; cursor: pointer; border-radius: 3px; }
+button.primary { background: var(--ink); color: var(--paper); min-width: 84px; }
+input[type=range] { flex: 1 1 220px; accent-color: var(--accent); }
+ul.checks { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; max-width: 72ch; }
+footer { border-top: 1px solid var(--rule); padding-top: 16px; color: var(--muted); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="kicker">C++20 &middot; NASDAQ TotalView-ITCH 5.0 &middot; 30 Dec 2019 session</div>
+  <h1>Peregrine</h1>
+  <p class="lede">A feed handler that reads NASDAQ's raw order feed, rebuilds the order book for every listed stock, and hands best-price updates to a strategy thread over a lock-free queue.</p>
+  <div class="links">
+    <a href="https://github.com/ZhuBryan/Peregrine---NASDAQ-ITCH-Feed-Handler">Source on GitHub</a>
+    <span class="muted">Built by Bryan Zhu</span>
+  </div>
+  <div class="tiles" id="tiles"></div>
+  <p class="env">Everything on this page was measured in a 2-vCPU Linux virtual machine on a laptop (Ryzen 7 PRO 7840U), on NASDAQ's public sample data. These are not tuned bare-metal numbers.</p>
+</header>
+
+<section id="replay">
+  <div class="sec-head">
+    <h2>Replay a real order book</h2>
+    <p>This is Apple's book as Peregrine rebuilt it from the feed: the five best prices on each side, sampled every five seconds from the 09:30 open to the 16:00 close. Press play or drag the slider.</p>
+  </div>
+  <div class="card">
+    <div class="controls">
+      <button class="primary" id="play" type="button">Play</button>
+      <label class="small muted" for="speed">Speed</label>
+      <select id="speed">
+        <option value="12">1 market minute per second</option>
+        <option value="60" selected>5 market minutes per second</option>
+        <option value="180">15 market minutes per second</option>
+      </select>
+      <input id="scrub" type="range" min="0" max="1" value="0" step="1" aria-label="Time of day">
+    </div>
+    <div class="replay">
+      <div>
+        <div class="ladder" id="ladder"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+        <div class="stats">
+          <div class="stat"><b id="st-time">09:30:00</b><span>Exchange time</span></div>
+          <div class="stat"><b id="st-mid">0</b><span>Mid price</span></div>
+          <div class="stat"><b id="st-spread">0</b><span>Spread</span></div>
+          <div class="stat"><b id="st-vol">0</b><span>Shares executed this minute</span></div>
+        </div>
+        <div>
+          <div class="small muted" style="display:flex;justify-content:space-between"><span>Bid share of top-of-book size: <b class="num" id="st-imb" style="color:var(--ink)">0.50</b></span><span id="st-hint"></span></div>
+          <div class="gauge" aria-hidden="true"><i id="gauge" style="width:50%"></i></div>
+        </div>
+        <div id="midchart" style="position:relative"></div>
+        <div class="legend"><span><i class="a"></i>AAPL mid price over the session</span><span><i class="b"></i>bids</span><span><i class="k"></i>asks</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="day">
+  <div class="sec-head">
+    <h2>One trading day, message by message</h2>
+    <p>Peregrine processed the complete session file: <span class="num" id="t-msgs"></span> messages across <span class="num">8,906</span> stocks from 04:00 to 20:00. The shaded band is regular trading hours.</p>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Messages per minute</h3><p>Activity spikes at the 09:30 open and again into the 16:00 close.</p><div id="c-msgs"></div></div>
+    <div class="card"><h3>Orders resting in the books</h3><p>Every one of these is tracked by reference number. The count returns to zero at the end of the day.</p><div id="c-live"></div></div>
+    <div class="card"><h3>Shares executed per minute</h3><p>Displayed executions across all stocks.</p><div id="c-vol"></div></div>
+    <div class="card"><h3>Best-price changes per minute</h3><p>How often some stock's best bid or offer moved. Each change is one update handed to the strategy thread.</p><div id="c-bbo"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>What the feed is made of</h3><p>Adds and deletes dominate: most orders are cancelled without trading.</p><div class="bars" id="b-types"></div></div>
+    <div class="card"><h3>Busiest stocks by message count</h3><p>Index funds and their leveraged versions lead.</p><div class="bars" id="b-top"></div></div>
+  </div>
+</section>
+
+<section id="perf">
+  <div class="sec-head">
+    <h2>Performance</h2>
+    <p>Three builds of the same program, measured on the first 2 GB of the session (64.5 million messages) with threads pinned. The baseline uses the C++ standard library's containers.</p>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Throughput, million messages per second</h3><div class="bars" id="b-tput"></div></div>
+    <div class="card"><h3>Median time per message, nanoseconds</h3><div class="bars" id="b-p50"></div></div>
+  </div>
+  <div class="card">
+    <h3>Latency percentiles per message</h3>
+    <div class="scroll"><table>
+      <thead><tr><th>Build</th><th class="num">Median</th><th class="num">99th</th><th class="num">99.9th</th></tr></thead>
+      <tbody>
+        <tr><td>Baseline: std::unordered_map + std::map</td><td class="num">561 ns</td><td class="num">2.3 µs</td><td class="num">17.7 µs</td></tr>
+        <tr><td>Version 1: flat hash map + sorted level arrays</td><td class="num">280 to 291 ns</td><td class="num">1.05 µs</td><td class="num">3.1 to 3.2 µs</td></tr>
+        <tr class="hl"><td>Version 2: adds prefetching and 16-byte slots</td><td class="num">120 ns</td><td class="num">0.67 to 0.73 µs</td><td class="num">2.3 µs</td></tr>
+      </tbody>
+    </table></div>
+    <p>Each time covers decode, book update and publish. Sampled on 1 message in 64; every sample includes one clock read.</p>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Full-day latency distribution</h3><p id="hist-note"></p><div id="c-hist"></div></div>
+    <div class="card"><h3>Where the time went, nanoseconds per message</h3><p>Each stage timed in isolation. Price levels cost more than the order map, and the cause was cache misses between stocks, so the fix was prefetching.</p><div class="bars" id="b-stage"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Prefetch distance, nanoseconds per message</h3><p>How many messages ahead the replay loop loads memory. One run per distance; 8 was chosen.</p><div class="bars" id="b-dist"></div></div>
+    <div class="card"><h3>A slow strategy thread</h3><p>Consumer doing 2 µs of work per update. Dropping stale updates keeps the feed fast, but data only stays fresh when the queue is also small.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Mode</th><th class="num">Feed time</th><th class="num">Delivered</th><th class="num">Median delay</th></tr></thead>
+        <tbody>
+          <tr><td>Wait for consumer, 65,536-slot queue</td><td class="num">1.31 s</td><td class="num">640,403</td><td class="num">147 ms</td></tr>
+          <tr><td>Keep latest only, 65,536-slot queue</td><td class="num">0.13 s</td><td class="num">118,921</td><td class="num">122 ms</td></tr>
+          <tr class="hl"><td>Keep latest only, 64-slot queue</td><td class="num">0.19 s</td><td class="num">80,788</td><td class="num">138 µs</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</section>
+
+<section id="signal">
+  <div class="sec-head">
+    <h2>Does the book predict the next move?</h2>
+    <p>For stocks quoted one cent wide during regular hours, the strategy thread recorded how lopsided the best bid and offer sizes were, then whether the next mid-price move was up. <span class="num" id="sig-n"></span> moves in total.</p>
+  </div>
+  <div class="card">
+    <h3 id="sig-title"></h3>
+    <div class="legend"><span><i class="a"></i>Imbalance measured when the quote was first posted</span><span><i></i>Measured just before the move (partly mechanical)</span></div>
+    <div id="c-sig"></div>
+    <p>The grey line looks stronger but a queue about to be used up is small by construction. The blue line is the meaningful one. This is one day, direction only, and it ignores the spread, fees and queue position, so it is not a trading result.</p>
+  </div>
+</section>
+
+<section id="trust">
+  <div class="sec-head">
+    <h2>Why the numbers can be trusted</h2>
+    <p>Four independent checks, each of which fails on a decoding or bookkeeping bug.</p>
+  </div>
+  <div class="tiles" id="tiles2"></div>
+  <ul class="checks">
+    <li><b>Differential test.</b> A random stream of adds, executions, cancels, deletes and replaces is compared, after every message, against a brute-force reference that rescans all live orders.</li>
+    <li><b>Unknown references.</b> Any execution or delete naming an order the handler does not hold is counted. The full day had none.</li>
+    <li><b>End-to-end state.</b> At the end of each run the strategy thread's view must equal the books for all 65,536 stock slots.</li>
+    <li><b>Network equivalence.</b> Replayed over UDP with 2% of packets deliberately dropped, the output must match a file replay exactly: 732 packets dropped, 732 retransmit requests, 34,295 messages recovered.</li>
+  </ul>
+</section>
+
+<footer>
+  <span>Data: NASDAQ TotalView-ITCH 5.0 sample file for 30 December 2019, from NASDAQ's public sample directory.</span>
+  <span>The replay, session charts, latency distribution and signal chart are drawn from Peregrine's own <span class="num">--export</span> output for the full day. The build comparisons come from separate benchmark runs.</span>
+</footer>
+</main>
+
+<script>
+const DAY = /*DAY_JSON*/;
+
+const $ = id => document.getElementById(id);
+const int = n => Math.round(n).toLocaleString('en-US');
+const compact = n => n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(0) + 'K' : String(Math.round(n));
+const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+const hms = s => hhmm(Math.floor(s / 60)) + ':' + String(s % 60).padStart(2, '0');
+
+function tiles(id, items) {
+  $(id).innerHTML = items.map(([v, l]) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`).join('');
+}
+function bars(id, items, fmt) {
+  const max = Math.max(...items.map(d => d.v));
+  $(id).innerHTML = items.map(d =>
+    `<div class="lab">${d.l}${d.s ? `<small>${d.s}</small>` : ''}</div><div class="track"><div class="fill${d.a ? ' a' : ''}" style="width:${(d.v / max * 100).toFixed(2)}%"></div></div><div class="val">${fmt(d.v)}</div>`).join('');
+}
+function niceMax(v) {
+  const p = Math.pow(10, Math.floor(Math.log10(v))), f = v / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+}
+/* One SVG line chart with hover. series: [{name, v, cls, area, dots}] */
+function lineChart(id, o) {
+  const W = 720, H = o.h || 230, L = 58, R = 34, T = 12, B = 26, n = o.series[0].v.length;
+  const yMax = o.yMax || niceMax(Math.max(...o.series.flatMap(s => s.v))), yMin = o.yMin || 0;
+  const x = i => L + (n === 1 ? 0 : i / (n - 1)) * (W - L - R), y = v => T + (1 - (v - yMin) / (yMax - yMin)) * (H - T - B);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${o.label}">`;
+  if (o.band) s += `<rect class="band" x="${x(o.band[0])}" y="${T}" width="${x(o.band[1]) - x(o.band[0])}" height="${H - T - B}"/>`;
+  for (let k = 0; k <= 4; k++) {
+    const v = yMin + (yMax - yMin) * k / 4;
+    s += `<line class="gridl" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${o.yFmt(v)}</text>`;
+  }
+  if (o.ref != null) s += `<line class="refl" x1="${L}" x2="${W - R}" y1="${y(o.ref)}" y2="${y(o.ref)}"/>`;
+  for (const i of o.xTicks) s += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${o.xFmt(i)}</text>`;
+  for (const se of o.series) {
+    const pts = se.v.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+    if (se.area) s += `<path class="area f-${se.cls}" d="M${x(0)},${y(yMin)} L${pts.join(' L')} L${x(n - 1)},${y(yMin)} Z"/>`;
+    s += `<path class="line s-${se.cls}" d="M${pts.join(' L')}"/>`;
+    if (se.dots) s += se.v.map((v, i) => `<circle class="f-${se.cls}" cx="${x(i)}" cy="${y(v)}" r="4"/>`).join('');
+  }
+  s += `<line class="cross" id="${id}-x" y1="${T}" y2="${H - B}" x1="-10" x2="-10"/><rect id="${id}-hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/></svg><div class="tip" id="${id}-tip"></div>`;
+  const el = $(id);
+  el.style.position = 'relative';
+  el.innerHTML = s;
+  const hit = $(id + '-hit'), tip = $(id + '-tip'), cross = $(id + '-x');
+  hit.addEventListener('pointermove', e => {
+    const r = hit.getBoundingClientRect(), i = Math.max(0, Math.min(n - 1, Math.round((e.clientX - r.left) / r.width * (n - 1))));
+    cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.style.opacity = 0.5;
+    tip.innerHTML = `${o.xFmt(i)}<br>` + o.series.map(se => `${se.name ? se.name + ': ' : ''}${o.tipFmt ? o.tipFmt(se.v[i]) : o.yFmt(se.v[i])}`).join('<br>');
+    tip.style.display = 'block';
+    const host = el.getBoundingClientRect(), px = e.clientX - host.left;
+    tip.style.left = Math.min(px + 12, host.width - tip.offsetWidth - 4) + 'px';
+    tip.style.top = '8px';
+  });
+  hit.addEventListener('pointerleave', () => { tip.style.display = 'none'; cross.style.opacity = 0; });
+  return { x, y, W, H, T, B };
+}
+
+/* ---------- headline tiles ---------- */
+const sigAll = DAY.signal.reduce((s, r) => s + r[0], 0);
+tiles('tiles', [
+  [compact(DAY.messages), 'messages in one trading day'],
+  [String(DAY.unknown_refs), 'order-tracking errors'],
+  ['5.1 to 5.5M', 'messages per second'],
+  ['120 ns', 'median time per message'],
+  ['3.4x', 'faster than the std baseline'],
+  [compact(DAY.bbo_changes), 'best-price updates published'],
+]);
+tiles('tiles2', [
+  [int(DAY.book_msgs), 'book-changing messages applied'],
+  [String(DAY.unknown_refs), 'referred to an unknown order'],
+  [String(DAY.live_end), 'orders left in the books at 20:00'],
+  [DAY.state_ok ? 'match' : 'MISMATCH', 'strategy view against books, all stocks'],
+]);
+$('t-msgs').textContent = int(DAY.messages);
+
+/* ---------- the day ---------- */
+const minuteAxis = { xTicks: [0, 120, 240, 330, 480, 600, 720, 840, 960 - 1], xFmt: i => hhmm(240 + i), band: [330, 720] };
+const dayChart = (id, v, label, cls) => lineChart(id, { ...minuteAxis, label, series: [{ v, cls, area: true }], yFmt: compact, tipFmt: int });
+dayChart('c-msgs', DAY.min_msgs, 'Messages per minute', 'a');
+dayChart('c-live', DAY.min_live, 'Orders resting in the books', 'a');
+dayChart('c-vol', DAY.min_vol, 'Shares executed per minute', 'a');
+dayChart('c-bbo', DAY.min_bbo, 'Best-price changes per minute', 'a');
+
+const TYPE = { A: 'Add order', F: 'Add order, with firm ID', D: 'Delete order', U: 'Replace order', E: 'Order executed', X: 'Partial cancel', C: 'Executed at a different price',
+  P: 'Trade against hidden order', I: 'Auction imbalance notice', Q: 'Auction trade', L: 'Market-maker registration', R: 'Stock directory', H: 'Trading status', Y: 'Short-sale restriction',
+  S: 'System event', J: 'Price-band update', K: 'IPO quoting period', V: 'Circuit-breaker levels', W: 'Circuit-breaker status', B: 'Broken trade', h: 'Operational halt', N: 'Retail interest' };
+const types = Object.entries(DAY.types).sort((a, b) => b[1] - a[1]).slice(0, 9);
+bars('b-types', types.map(([k, v]) => ({ l: TYPE[k] || k, s: (v / DAY.messages * 100).toFixed(v / DAY.messages < 0.01 ? 2 : 1) + '% of all messages', v, a: 'ADUEXFC'.includes(k) })), compact);
+bars('b-top', DAY.top.slice(0, 10).map(([l, v]) => ({ l: `<span class="num">${l}</span>`, v, a: l === DAY.watch })), compact);
+
+/* ---------- performance (benchmark table values) ---------- */
+bars('b-tput', [{ l: 'Baseline', s: 'std containers', v: 1.5 }, { l: 'Version 1', s: 'flat map, sorted arrays', v: 4.45 }, { l: 'Version 2', s: 'adds prefetching', v: 5.3, a: 1 }], v => v.toFixed(1) + 'M');
+bars('b-p50', [{ l: 'Baseline', s: 'std containers', v: 561 }, { l: 'Version 1', s: 'flat map, sorted arrays', v: 285 }, { l: 'Version 2', s: 'adds prefetching', v: 120, a: 1 }], v => v + ' ns');
+bars('b-stage', [{ l: 'Decode only', v: 11 }, { l: 'Add order map', v: 67.5 }, { l: 'Add price levels', s: 'version 1 feed thread', v: 211 }, { l: 'Add prefetching', v: 125.5 }, { l: 'Add 16-byte slots', s: 'version 2 feed thread', v: 119.5, a: 1 }], v => Math.round(v) + ' ns');
+bars('b-dist', [[1, 217.9], [2, 135.4], [4, 132.6], [8, 126.1], [16, 147.4], [32, 139.9]].map(([d, v]) => ({ l: `${d} ahead`, v, a: d === 8 })), v => v.toFixed(0) + ' ns');
+
+const histTotal = DAY.lat_hist.reduce((s, v) => s + v, 0), histShown = DAY.lat_hist.slice(0, 100);
+$('hist-note').textContent = `${int(histTotal)} sampled messages from the full session. Median ${DAY.feed_ns[0]} ns, 99th percentile ${DAY.feed_ns[1]} ns; ${(DAY.lat_hist.slice(100).reduce((s, v) => s + v, 0) / histTotal * 100).toFixed(1)}% took longer than 1 µs and are off the right edge.`;
+lineChart('c-hist', { label: 'Latency distribution', series: [{ v: histShown.map(v => v / histTotal * 100), cls: 'a', area: true }], xTicks: [0, 20, 40, 60, 80, 99],
+  xFmt: i => i * 10 + ' ns', yFmt: v => v.toFixed(v < 10 ? 1 : 0) + '%', tipFmt: v => v.toFixed(2) + '% of messages' });
+
+/* ---------- signal ---------- */
+const sig0 = DAY.signal.map(r => r[1] / r[0] * 100), sig1 = DAY.signal.map(r => r[3] / r[2] * 100);
+$('sig-n').textContent = int(sigAll);
+$('sig-title').textContent = `Bid-heavy books moved up ${sig0[9].toFixed(0)}% of the time; ask-heavy books ${sig0[0].toFixed(0)}%`;
+lineChart('c-sig', { label: 'Share of next mid-price moves that were up, by imbalance', h: 300, yMax: 100, ref: 50,
+  series: [{ name: 'Just before the move', v: sig1, cls: 'q', dots: true }, { name: 'At quote start', v: sig0, cls: 'a', dots: true }],
+  xTicks: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], xFmt: i => `${(i / 10).toFixed(1)}-${((i + 1) / 10).toFixed(1)}`, yFmt: v => v.toFixed(0) + '%', tipFmt: v => v.toFixed(1) + '% up' });
+
+/* ---------- order book replay ---------- */
+const S = DAY.snaps, LV = DAY.levels, K = 1 + 4 * LV, N = S.length / K;
+const px = (i, side, lvl) => S[i * K + 1 + side * 2 * LV + 2 * lvl], qty = (i, side, lvl) => S[i * K + 2 + side * 2 * LV + 2 * lvl];
+const mids = Array.from({ length: N }, (_, i) => (px(i, 0, 0) + px(i, 1, 0)) / 2e4);
+const lo = Math.min(...mids), hi = Math.max(...mids);
+const mc = lineChart('midchart', { label: 'AAPL mid price', h: 210, yMin: Math.floor(lo), yMax: Math.ceil(hi), series: [{ name: 'Mid', v: mids, cls: 'a' }],
+  xTicks: [0, 720, 1440, 2160, 2880, 3600, 4320, N - 1], xFmt: i => hms(S[i * K]).slice(0, 5), yFmt: v => '$' + v.toFixed(2), tipFmt: v => '$' + v.toFixed(2) });
+$('midchart').querySelector('svg').insertAdjacentHTML('beforeend', `<line id="playhead" class="s-k" stroke-width="2" y1="${mc.T}" y2="${mc.H - mc.B}" x1="0" x2="0"/>`);
+
+const ladder = $('ladder');
+let rows = '';
+for (let l = LV - 1; l >= 0; l--) rows += `<div class="lrow ask"><span class="px" id="a-px${l}"></span><span class="q" id="a-q${l}"></span><span class="bar" id="a-b${l}"></span></div>`;
+rows += `<div class="spread"><span>spread</span><span class="num" id="lad-spread" style="color:var(--ink)"></span></div>`;
+for (let l = 0; l < LV; l++) rows += `<div class="lrow bid"><span class="px" id="b-px${l}"></span><span class="q" id="b-q${l}"></span><span class="bar" id="b-b${l}"></span></div>`;
+ladder.innerHTML = rows;
+
+let frame = 60, playing = false, last = 0, acc = 0;
+function draw() {
+  const i = frame, t = S[i * K];
+  for (let l = 0; l < LV; l++) for (const [side, p] of [[0, 'b'], [1, 'a']]) {
+    const P = px(i, side, l), Q = qty(i, side, l);
+    $(`${p}-px${l}`).textContent = P ? (P / 1e4).toFixed(2) : '';
+    $(`${p}-q${l}`).textContent = P ? int(Q) : '';
+    $(`${p}-b${l}`).style.width = Math.min(100, Q / 1500 * 100) + '%';
+  }
+  const bq = qty(i, 0, 0), aq = qty(i, 1, 0), imb = bq / (bq + aq || 1), cents = (px(i, 1, 0) - px(i, 0, 0)) / 100;
+  $('st-time').textContent = hms(t);
+  $('st-mid').textContent = '$' + mids[i].toFixed(3);
+  $('st-spread').textContent = cents.toFixed(0) + '¢';
+  $('lad-spread').textContent = cents.toFixed(0) + '¢';
+  $('st-vol').textContent = int(DAY.watch_vol[Math.min(DAY.watch_vol.length - 1, Math.floor(t / 60) - 570)]);
+  $('st-imb').textContent = imb.toFixed(2);
+  $('gauge').style.width = (imb * 100).toFixed(1) + '%';
+  const b = Math.min(9, Math.floor(imb * 10)), r = DAY.signal[b];
+  $('st-hint').textContent = `Market-wide, quotes posted like this ticked up ${(r[1] / r[0] * 100).toFixed(0)}% of the time`;
+  const xh = mc.x(i);
+  $('playhead').setAttribute('x1', xh); $('playhead').setAttribute('x2', xh);
+  $('scrub').value = i;
+}
+function tick(now) {
+  if (!playing) return;
+  acc += (now - last) / 1000 * Number($('speed').value);
+  last = now;
+  const step = Math.floor(acc);
+  if (step) { acc -= step; frame = Math.min(N - 1, frame + step); draw(); }
+  if (frame >= N - 1) { playing = false; $('play').textContent = 'Replay'; return; }
+  requestAnimationFrame(tick);
+}
+$('scrub').max = N - 1;
+$('scrub').addEventListener('input', e => { frame = Number(e.target.value); draw(); });
+$('play').addEventListener('click', () => {
+  if (playing) { playing = false; $('play').textContent = 'Play'; return; }
+  if (frame >= N - 1) frame = 0;
+  playing = true; $('play').textContent = 'Pause'; last = performance.now(); acc = 0; requestAnimationFrame(tick);
+});
+draw();
+</script>
+</body>
+</html>
