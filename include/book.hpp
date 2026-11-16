@@ -22,6 +22,76 @@ struct Order {
     char side() const { return is_bid ? 'B' : 'S'; }
 };
 
+// Open-addressing hash map from a 64-bit key to V: linear probing, backward-shift deletion
+// (no tombstones). Key 0 marks an empty slot, so it cannot be stored; ITCH order reference
+// numbers are never 0. V must be trivially copyable.
+template <class V>
+class FlatMap {
+    struct Slot {
+        uint64_t key;
+        V val;
+    };
+    std::vector<Slot> s_;
+    size_t mask_, size_ = 0;
+    int shift_;
+    size_t home(uint64_t k) const { return (k * 0x9E3779B97F4A7C15ull) >> shift_; }
+    void init(size_t cap) {
+        s_.assign(cap, Slot{});
+        mask_ = cap - 1;
+        shift_ = 64 - __builtin_ctzll(cap);
+    }
+    // Returns false, leaving the table unchanged, if k is already present.
+    bool place(uint64_t k, const V& v) {
+        size_t i = home(k);
+        for (; s_[i].key; i = (i + 1) & mask_)
+            if (s_[i].key == k) return false;
+        s_[i] = {k, v};
+        return true;
+    }
+    void grow() {  // a rehash stalls the caller; size the map up front to avoid it
+        std::vector<Slot> old = std::move(s_);
+        init(old.size() * 2);
+        for (auto& x : old)
+            if (x.key) place(x.key, x.val);
+    }
+    size_t find_idx(uint64_t k) const {
+        for (size_t i = home(k);; i = (i + 1) & mask_) {
+            if (s_[i].key == k) return i;
+            if (!s_[i].key) return SIZE_MAX;
+        }
+    }
+
+public:
+    explicit FlatMap(size_t cap_pow2) { init(cap_pow2); }
+    // Pointers are invalidated by insert (growth) and by erase (entries shift).
+    V* find(uint64_t k) {
+        size_t i = find_idx(k);
+        return i == SIZE_MAX ? nullptr : &s_[i].val;
+    }
+    bool insert(uint64_t k, const V& v) {         // false if k is already present
+        if ((size_ + 1) * 2 > s_.size()) grow();  // max load factor 0.5
+        if (!place(k, v)) return false;
+        ++size_;
+        return true;
+    }
+    // `v` must be the pointer find(k) returned; it locates the slot without probing again.
+    void erase(uint64_t, V* v) {
+        const auto* slot = reinterpret_cast<const Slot*>(reinterpret_cast<const char*>(v) - offsetof(Slot, val));
+        size_t i = size_t(slot - s_.data());
+        for (size_t j = (i + 1) & mask_; s_[j].key; j = (j + 1) & mask_) {
+            // s_[j] may move back into the hole at i unless its home lies in (i, j]
+            if (((j - home(s_[j].key)) & mask_) >= ((j - i) & mask_)) {
+                s_[i] = s_[j];
+                i = j;
+            }
+        }
+        s_[i].key = 0;
+        --size_;
+    }
+    void prefetch(uint64_t k) const { __builtin_prefetch(&s_[home(k)]); }
+    size_t size() const { return size_; }
+};
+
 #ifdef BASELINE
 class OrderMap {
     std::unordered_map<uint64_t, Order> m_;
@@ -38,72 +108,7 @@ public:
     size_t size() const { return m_.size(); }
 };
 #else
-// Open-addressing hash map, linear probing, backward-shift deletion (no tombstones).
-// Key 0 marks an empty slot; ITCH order reference numbers are never 0.
-class OrderMap {
-    struct Slot {
-        uint64_t key;
-        Order val;
-    };
-    std::vector<Slot> s_;
-    size_t mask_, size_ = 0;
-    int shift_;
-    size_t home(uint64_t k) const { return (k * 0x9E3779B97F4A7C15ull) >> shift_; }
-    void init(size_t cap) {
-        s_.assign(cap, Slot{});
-        mask_ = cap - 1;
-        shift_ = 64 - __builtin_ctzll(cap);
-    }
-    // Returns false, leaving the table unchanged, if k is already present.
-    bool place(uint64_t k, Order o) {
-        size_t i = home(k);
-        for (; s_[i].key; i = (i + 1) & mask_)
-            if (s_[i].key == k) return false;
-        s_[i] = {k, o};
-        return true;
-    }
-    void grow() {  // rehash stalls the feed thread; size the map up front to avoid it
-        std::vector<Slot> old = std::move(s_);
-        init(old.size() * 2);
-        for (auto& x : old)
-            if (x.key) place(x.key, x.val);
-    }
-    size_t find_idx(uint64_t k) const {
-        for (size_t i = home(k);; i = (i + 1) & mask_) {
-            if (s_[i].key == k) return i;
-            if (!s_[i].key) return SIZE_MAX;
-        }
-    }
-
-public:
-    explicit OrderMap(size_t cap_pow2) { init(cap_pow2); }
-    Order* find(uint64_t k) {
-        size_t i = find_idx(k);
-        return i == SIZE_MAX ? nullptr : &s_[i].val;
-    }
-    bool insert(uint64_t k, Order o) {            // false if k is already present
-        if ((size_ + 1) * 2 > s_.size()) grow();  // max load factor 0.5
-        if (!place(k, o)) return false;
-        ++size_;
-        return true;
-    }
-    // `o` must be the pointer find(k) returned; it locates the slot without probing again.
-    void erase(uint64_t, Order* o) {
-        const auto* slot = reinterpret_cast<const Slot*>(reinterpret_cast<const char*>(o) - offsetof(Slot, val));
-        size_t i = size_t(slot - s_.data());
-        for (size_t j = (i + 1) & mask_; s_[j].key; j = (j + 1) & mask_) {
-            // s_[j] may move back into the hole at i unless its home lies in (i, j]
-            if (((j - home(s_[j].key)) & mask_) >= ((j - i) & mask_)) {
-                s_[i] = s_[j];
-                i = j;
-            }
-        }
-        s_[i].key = 0;
-        --size_;
-    }
-    void prefetch(uint64_t k) const { __builtin_prefetch(&s_[home(k)]); }
-    size_t size() const { return size_; }
-};
+using OrderMap = FlatMap<Order>;
 #endif
 
 struct Level {

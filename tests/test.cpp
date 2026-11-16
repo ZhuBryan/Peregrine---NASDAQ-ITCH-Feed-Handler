@@ -4,6 +4,7 @@
 //  3. SPSC queue: ordering and completeness across two threads
 //  4. order map vs std::unordered_map under churn; malformed input is skipped and counted
 //  5. integrity counters, conflation, and the JSON export
+//  6. queue audit: priority exceptions and fill counts on a scripted stream
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -20,6 +21,7 @@
 #include "export.hpp"
 #include "itch.hpp"
 #include "pipeline.hpp"
+#include "queue_audit.hpp"
 #include "spsc.hpp"
 
 #define CHECK(c)                                                              \
@@ -392,6 +394,33 @@ static void test_export() {
     std::remove(path.c_str());
 }
 
+// Queue audit on a scripted stream: one execution in order, one that jumps an older order
+// at the same price, one below the best price; plus the fill-by-queue-position counts.
+static void test_queue_audit() {
+    QueueAudit audit;
+    Buf b;
+    const uint64_t t = itch::kRegularOpenNs + 60'000'000'000ull;  // 09:31, well clear of the open
+    header(b, 25, 'H', 1, t - 5'000'000'000ull);                  // stock 1 trading since 09:30:55
+    for (char c : {'T', 'E', 'S', 'T', ' ', ' ', ' ', ' ', 'T', ' ', ' ', ' ', ' ', ' '}) b.push_back(uint8_t(c));
+    enc_add(b, 1, t + 1, 1, 'B', 100, 100000);  // new best bid, nothing ahead
+    enc_add(b, 1, t + 2, 2, 'B', 100, 100000);  // joins it behind 100 shares
+    enc_add(b, 1, t + 3, 3, 'B', 100, 100100);  // improves the bid
+    enc_exec(b, 1, t + 4, 3, 100);              // best price, head of its queue: in order
+    enc_exec(b, 1, t + 5, 2, 100);              // best price again, but order 1 is older
+    enc_add(b, 1, t + 6, 4, 'B', 100, 99900);   // behind the best price: not tracked
+    enc_exec(b, 1, t + 7, 4, 50);               // order 1 at 10.00 is better priced
+    CHECK(itch::for_each_message(b.data(), b.size(), [&](const uint8_t* m) { audit.on_message(m); }) == b.size());
+    const QueueAudit::Stats& s = audit.stats();
+    CHECK(s.executions == 3 && s.head_of_queue == 1 && s.not_oldest == 1 && s.not_best_price == 1);
+    CHECK(s.jumped[0] == 1);  // exactly one order was ahead
+    CHECK(s.exceptions[QueueAudit::kRegular][QueueAudit::kExec][QueueAudit::kTrading][1] == 1);
+    CHECK(s.exceptions[QueueAudit::kRegular][QueueAudit::kExec][QueueAudit::kTrading][0] == 1);
+    CHECK(s.entry[0].orders == 2 && s.entry[0].filled == 1);  // orders 1 and 3 had nothing ahead; 3 filled
+    CHECK(s.entry[2].orders == 1 && s.entry[2].filled == 1);  // order 2 had 100 ahead and filled
+    CHECK(audit.live_orders() == 2 && audit.live_orders() == audit.books().live_orders());
+    CHECK(audit.books().top(1).bid_px == 100000 && audit.books().top(1).bid_qty == 100);
+}
+
 int main(int argc, char** argv) {
     if (argc == 3 && std::string(argv[1]) == "--emit") {  // write a synthetic ITCH file and exit
         std::FILE* f = std::fopen(argv[2], "wb");
@@ -407,6 +436,7 @@ int main(int argc, char** argv) {
     test_integrity_counters();
     test_conflation();
     test_export();
+    test_queue_audit();
     for (unsigned seed = 1; seed <= 5; ++seed) test_differential(seed, 20000);
     test_spsc();
     std::puts("all tests passed");

@@ -25,8 +25,10 @@ class MoldReceiver {
     int fd_;
     uint64_t next_ = 1;                                 // next sequence number we need
     std::map<uint64_t, std::vector<uint8_t>> pending_;  // packets received ahead of a gap, by first seq
-    // TODO: this buffer is unbounded. Cap it and fall back to a snapshot (GLIMPSE)
-    // when a gap is too large to replay.
+    // Bounded: a gap that would need more than kMaxPending buffered packets cannot be
+    // replayed from here. A production handler would rebuild from a snapshot (GLIMPSE);
+    // this one stops with an error rather than grow without limit.
+    static constexpr size_t kMaxPending = 1 << 16;
     sockaddr_in src_{};
     bool have_src_ = false;
     char session_[10] = {};
@@ -105,9 +107,12 @@ public:
     ~MoldReceiver() { close(fd_); }
 
     // Blocks until the end-of-session packet has been seen and every message delivered.
-    // Returns false if the sender goes silent for kIdleLimit before that.
-    template <class F>
-    bool run(F&& on_msg) {
+    // Returns false if the sender goes silent for kIdleLimit before that, or if a gap
+    // grows past kMaxPending buffered packets.
+    // on_packet(payload, size) is called once per packet just before its messages are
+    // delivered; the payload uses the same length-prefixed framing as a file.
+    template <class F, class P>
+    bool run(F&& on_msg, P&& on_packet) {
         using namespace std::chrono;
         std::vector<uint8_t> buf(65536);
         uint64_t end_seq = 0;  // sequence number one past the last message, once known
@@ -138,6 +143,7 @@ public:
             } else if (count) {
                 ++packets;
                 if (seq > next_) {  // something before this packet is missing
+                    if (pending_.size() >= kMaxPending) return false;
                     pending_.emplace(seq, std::vector<uint8_t>(buf.begin(), buf.begin() + n));
                     if (pending_.size() > max_buffered) max_buffered = pending_.size();
                     if (!gap) {
@@ -145,8 +151,10 @@ public:
                         request(end_seq);
                     }
                 } else {
+                    on_packet(buf.data() + 20, size_t(n) - 20);
                     deliver(buf.data(), size_t(n), gap, on_msg);
                     while (!pending_.empty() && pending_.begin()->first <= next_) {
+                        on_packet(pending_.begin()->second.data() + 20, pending_.begin()->second.size() - 20);
                         deliver(pending_.begin()->second.data(), pending_.begin()->second.size(), false, on_msg);
                         pending_.erase(pending_.begin());
                     }

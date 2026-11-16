@@ -15,14 +15,10 @@
 //                snapshots of SYM (09:30-16:00) to PATH as JSON, for docs/index.html
 //   --queue N    SPSC capacity, power of two (default 65536). With --conflate keep it
 //                small: a deep queue hands the consumer stale updates before conflation starts
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
-#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -33,6 +29,7 @@
 
 #include "book.hpp"
 #include "export.hpp"
+#include "input.hpp"
 #include "itch.hpp"
 #include "mold.hpp"
 #include "pipeline.hpp"
@@ -103,50 +100,6 @@ static Options parse_args(int argc, char** argv) {
     return opt;
 }
 
-// Replays from stdin, e.g. `gunzip -c day.gz | itchfh -`, for files too big to keep
-// uncompressed. The returned time counts processing only, not time blocked on the pipe.
-template <class Replay>
-static double replay_stdin(Replay&& replay, Feed& feed) {
-    std::vector<uint8_t> buf(16 << 20);
-    size_t have = 0;
-    double secs = 0;
-    for (ssize_t n; (n = read(STDIN_FILENO, buf.data() + have, buf.size() - have)) != 0;) {
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            std::perror("stdin");
-            break;
-        }
-        have += size_t(n);
-        const auto t0 = Clock::now();
-        const size_t used = replay(buf.data(), have);
-        secs += std::chrono::duration<double>(Clock::now() - t0).count();
-        std::memmove(buf.data(), buf.data() + used, have - used);  // keep the partial tail message
-        have -= used;
-    }
-    feed.finish();
-    return secs;
-}
-
-template <class Replay>
-static double replay_file(const char* path, Replay&& replay, Feed& feed) {
-    const int fd = open(path, O_RDONLY);
-    struct stat st;
-    if (fd < 0 || fstat(fd, &st) != 0) {
-        std::perror(path);
-        std::exit(1);
-    }
-    // MAP_POPULATE pre-faults the file so disk I/O stays out of the timed region.
-    void* map = mmap(nullptr, st.st_size, PROT_READ, MAP_PRIVATE | MAP_POPULATE, fd, 0);
-    if (map == MAP_FAILED) {
-        std::perror("mmap");
-        std::exit(1);
-    }
-    const auto t0 = Clock::now();
-    replay(static_cast<const uint8_t*>(map), st.st_size);
-    feed.finish();
-    return std::chrono::duration<double>(Clock::now() - t0).count();
-}
-
 struct Run {
     uint64_t msgs = 0, malformed = 0;
     bool complete = true;  // false if a UDP session ended early
@@ -166,7 +119,8 @@ static void report(const Options& opt, const Feed& feed, const Consumer& consume
     std::printf("integrity       %llu unknown order refs, %llu crossed BBOs, final consumer state %s\n",
                 ull(books.unknown_refs), ull(consumer.crossed), run.mismatches ? "MISMATCH" : "matches books");
     if (run.malformed) std::printf("WARNING         %llu malformed messages skipped\n", ull(run.malformed));
-    if (!run.complete) std::printf("WARNING         sender went silent before the end of the session\n");
+    if (!run.complete)
+        std::printf("WARNING         session incomplete: the sender went silent or a gap was too large to recover\n");
     if (books.duplicate_refs)
         std::printf("WARNING         %llu adds reused a live order reference\n", ull(books.duplicate_refs));
     if (books.inconsistent)
@@ -251,14 +205,27 @@ int main(int argc, char** argv) {
             on_msg, &run.malformed);
     };
 
-    if (from_stdin) {
-        run.secs = replay_stdin(replay, feed);
-    } else if (opt.file) {
-        run.secs = replay_file(opt.file, replay, feed);
+    if (opt.file) {
+        run.secs = for_each_chunk(opt.file, replay);
+        const auto t0 = Clock::now();
+        feed.finish();
+        run.secs += std::chrono::duration<double>(Clock::now() - t0).count();
     } else {
         MoldReceiver rx(opt.udp_ip, uint16_t(opt.udp_port));
         const auto t0 = Clock::now();
-        run.complete = rx.run(on_msg);
+        // A live feed cannot look ahead across packets, but it can within one: prefetch
+        // every order slot and book header in the packet, then the level arrays they point to.
+        auto warm = [&](const uint8_t* p, size_t n) {
+            uint16_t loc;
+            uint64_t ref;
+            itch::for_each_message(p, n, [&](const uint8_t* m) {
+                if (itch::peek_order(m, loc, ref)) feed.books.prefetch_order(ref, loc);
+            });
+            itch::for_each_message(p, n, [&](const uint8_t* m) {
+                if (itch::peek_order(m, loc, ref)) feed.books.prefetch_levels(loc);
+            });
+        };
+        run.complete = rx.run(on_msg, warm);
         feed.finish();
         run.secs = std::chrono::duration<double>(Clock::now() - t0).count();
         run.malformed = rx.malformed;

@@ -69,7 +69,7 @@ inline void decode(const uint8_t* m, Handler& h) {
 }
 
 // Shortest valid length for a message of this type. Every message carries the 11-byte
-// header, and the types decode() reads have fixed layouts.
+// header, and the types this project reads have fixed layouts.
 inline size_t min_length(uint8_t type) {
     switch (type) {
         case 'A':
@@ -88,6 +88,8 @@ inline size_t min_length(uint8_t type) {
             return 35;
         case 'R':
             return 39;
+        case 'H':
+            return 25;
         default:
             return 11;
     }
