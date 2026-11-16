@@ -125,7 +125,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 16px; color: var(--mute
     <span class="muted">Built by Bryan Zhu</span>
   </div>
   <div class="tiles" id="tiles"></div>
-  <p class="env">Everything on this page was measured in a 2-vCPU Linux virtual machine on a laptop (Ryzen 7 PRO 7840U), on NASDAQ's public sample data. These are not tuned bare-metal numbers.</p>
+  <p class="env">Everything here runs on one laptop (Ryzen 7 PRO 7840U) against NASDAQ's public sample data. The speed benchmarks ran under WSL2 with all 16 threads available; the full-day results ran in a 2-vCPU Linux virtual machine. Neither is tuned bare metal.</p>
 </header>
 
 <section id="replay">
@@ -216,7 +216,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 16px; color: var(--mute
 <section id="perf">
   <div class="sec-head">
     <h2>Performance</h2>
-    <p>Three builds of the same program, measured on the first 2 GB of the session (64.5 million messages) with threads pinned. The baseline uses the C++ standard library's containers.</p>
+    <p>Two builds of the same program on the first 2 GB of the session (64.5 million messages): three runs each under WSL2, feed and strategy threads pinned to separate cores. The baseline swaps in the C++ standard library's containers.</p>
   </div>
   <div class="grid2">
     <div class="card"><h3>Throughput, million messages per second</h3><div class="bars" id="b-tput"></div></div>
@@ -227,19 +227,18 @@ footer { border-top: 1px solid var(--rule); padding-top: 16px; color: var(--mute
     <div class="scroll"><table>
       <thead><tr><th>Build</th><th class="num">Median</th><th class="num">99th</th><th class="num">99.9th</th></tr></thead>
       <tbody>
-        <tr><td>Baseline: std::unordered_map + std::map</td><td class="num">561 ns</td><td class="num">2.3 µs</td><td class="num">17.7 µs</td></tr>
-        <tr><td>Version 1: flat hash map + sorted level arrays</td><td class="num">280 to 291 ns</td><td class="num">1.05 µs</td><td class="num">3.1 to 3.2 µs</td></tr>
-        <tr class="hl"><td>Version 2: adds prefetching and 16-byte slots</td><td class="num">120 ns</td><td class="num">0.67 to 0.73 µs</td><td class="num">2.3 µs</td></tr>
+        <tr><td>Baseline: std::unordered_map + std::map</td><td class="num">584 to 617 ns</td><td class="num">2.4 to 2.6 µs</td><td class="num">12.1 to 16.1 µs</td></tr>
+        <tr class="hl"><td>Peregrine: flat hash map, sorted level arrays, prefetching</td><td class="num">109 to 111 ns</td><td class="num">657 to 688 ns</td><td class="num">1.9 to 2.2 µs</td></tr>
       </tbody>
     </table></div>
     <p>Each time covers decode, book update and publish. Sampled on 1 message in 64; every sample includes one clock read.</p>
   </div>
   <div class="grid2">
     <div class="card"><h3>Full-day latency distribution</h3><p id="hist-note"></p><div id="c-hist"></div></div>
-    <div class="card"><h3>Where the time went, nanoseconds per message</h3><p>Each stage timed in isolation. Price levels cost more than the order map, and the cause was cache misses between stocks, so the fix was prefetching.</p><div class="bars" id="b-stage"></div></div>
+    <div class="card"><h3>Where the time went, nanoseconds per message</h3><p>Each stage timed in isolation during development, in the 2-vCPU machine. Price levels cost more than the order map, and the cause was cache misses between stocks, so the fix was prefetching.</p><div class="bars" id="b-stage"></div></div>
   </div>
   <div class="grid2">
-    <div class="card"><h3>Prefetch distance, nanoseconds per message</h3><p>How many messages ahead the replay loop loads memory. One run per distance; 8 was chosen.</p><div class="bars" id="b-dist"></div></div>
+    <div class="card"><h3>Prefetch distance, nanoseconds per message</h3><p>How many messages ahead the replay loop loads memory. One run per distance in the 2-vCPU machine; 8 was chosen.</p><div class="bars" id="b-dist"></div></div>
     <div class="card"><h3>A slow strategy thread</h3><p>Consumer doing 2 µs of work per update. Dropping stale updates keeps the feed fast, but data only stays fresh when the queue is also small.</p>
       <div class="scroll"><table>
         <thead><tr><th>Mode</th><th class="num">Feed time</th><th class="num">Delivered</th><th class="num">Median delay</th></tr></thead>
@@ -250,6 +249,27 @@ footer { border-top: 1px solid var(--rule); padding-top: 16px; color: var(--mute
         </tbody>
       </table></div>
     </div>
+  </div>
+</section>
+
+<section id="queue">
+  <div class="sec-head">
+    <h2>Does the exchange keep its queue?</h2>
+    <p>An exchange promises price-time priority: the best price trades first, and at one price the oldest order trades first. A second tool rebuilds every price level as a queue of individual orders and checks each of the day's executions against that promise.</p>
+  </div>
+  <div class="tiles" id="tiles-q"></div>
+  <div class="grid2">
+    <div class="card">
+      <h3>What the audit found</h3>
+      <ul class="checks">
+        <li>Ranking orders by when their Add message arrives leaves <span class="num">10,565</span> ordinary executions that appear to jump an older order, most of them in the half hour after the open.</li>
+        <li>Ranking by order reference number leaves none. Some orders reach the feed after a higher-numbered order at the same price, mostly just after the open, and the exchange trades them in number order.</li>
+        <li>The remaining out-of-turn executions are all of one message type: orders executing at a price better than the one they displayed, which fits their being ranked at that better price.</li>
+        <li>A replace that only shrinks an order behaves as a new order at the back of the queue.</li>
+      </ul>
+      <p>This is one day of data, and the feed shows displayed orders only. The findings are what the data is consistent with, not rules quoted from the exchange.</p>
+    </div>
+    <div class="card"><h3>Chance of trading, by shares already waiting ahead</h3><p id="q-note"></p><div class="bars" id="b-fill"></div></div>
   </div>
 </section>
 
@@ -282,12 +302,13 @@ footer { border-top: 1px solid var(--rule); padding-top: 16px; color: var(--mute
 
 <footer>
   <span>Data: NASDAQ TotalView-ITCH 5.0 sample file for 30 December 2019, from NASDAQ's public sample directory.</span>
-  <span>The replay, session charts, latency distribution and signal chart are drawn from Peregrine's own <span class="num">--export</span> output for the full day. The build comparisons come from separate benchmark runs.</span>
+  <span>The replay, session charts, latency distribution and signal chart are drawn from Peregrine's own <span class="num">--export</span> output for the full day. The build comparison comes from separate benchmark runs, and the queue audit from <span class="num">queue_audit</span>.</span>
 </footer>
 </main>
 
 <script>
 const DAY = /*DAY_JSON*/;
+const QUEUE = /*QUEUE_JSON*/;
 
 const $ = id => document.getElementById(id);
 const int = n => Math.round(n).toLocaleString('en-US');
@@ -349,9 +370,9 @@ const sigAll = DAY.signal.reduce((s, r) => s + r[0], 0);
 tiles('tiles', [
   [compact(DAY.messages), 'messages in one trading day'],
   [String(DAY.unknown_refs), 'order-tracking errors'],
-  ['5.1 to 5.5M', 'messages per second'],
-  ['120 ns', 'median time per message'],
-  ['3.4x', 'faster than the std baseline'],
+  ['6.6 to 6.9M', 'messages per second'],
+  ['110 ns', 'median time per message'],
+  ['4.4x', 'faster than the std baseline'],
   [compact(DAY.bbo_changes), 'best-price updates published'],
 ]);
 tiles('tiles2', [
@@ -378,15 +399,25 @@ bars('b-types', types.map(([k, v]) => ({ l: TYPE[k] || k, s: (v / DAY.messages *
 bars('b-top', DAY.top.slice(0, 10).map(([l, v]) => ({ l: `<span class="num">${l}</span>`, v, a: l === DAY.watch })), compact);
 
 /* ---------- performance (benchmark table values) ---------- */
-bars('b-tput', [{ l: 'Baseline', s: 'std containers', v: 1.5 }, { l: 'Version 1', s: 'flat map, sorted arrays', v: 4.45 }, { l: 'Version 2', s: 'adds prefetching', v: 5.3, a: 1 }], v => v.toFixed(1) + 'M');
-bars('b-p50', [{ l: 'Baseline', s: 'std containers', v: 561 }, { l: 'Version 1', s: 'flat map, sorted arrays', v: 285 }, { l: 'Version 2', s: 'adds prefetching', v: 120, a: 1 }], v => v + ' ns');
-bars('b-stage', [{ l: 'Decode only', v: 11 }, { l: 'Add order map', v: 67.5 }, { l: 'Add price levels', s: 'version 1 feed thread', v: 211 }, { l: 'Add prefetching', v: 125.5 }, { l: 'Add 16-byte slots', s: 'version 2 feed thread', v: 119.5, a: 1 }], v => Math.round(v) + ' ns');
+bars('b-tput', [{ l: 'Baseline', s: 'std containers', v: 1.45 }, { l: 'Peregrine', s: 'flat map, sorted arrays, prefetching', v: 6.7, a: 1 }], v => v.toFixed(1) + 'M');
+bars('b-p50', [{ l: 'Baseline', s: 'std containers', v: 596 }, { l: 'Peregrine', s: 'flat map, sorted arrays, prefetching', v: 110, a: 1 }], v => v + ' ns');
+bars('b-stage', [{ l: 'Decode only', v: 11 }, { l: 'Add order map', v: 67.5 }, { l: 'Add price levels', s: 'whole feed thread, before', v: 211 }, { l: 'Add prefetching', v: 125.5 }, { l: 'Add 16-byte slots', s: 'whole feed thread, after', v: 119.5, a: 1 }], v => Math.round(v) + ' ns');
 bars('b-dist', [[1, 217.9], [2, 135.4], [4, 132.6], [8, 126.1], [16, 147.4], [32, 139.9]].map(([d, v]) => ({ l: `${d} ahead`, v, a: d === 8 })), v => v.toFixed(0) + ' ns');
 
 const histTotal = DAY.lat_hist.reduce((s, v) => s + v, 0), histShown = DAY.lat_hist.slice(0, 100);
 $('hist-note').textContent = `${int(histTotal)} sampled messages from the full session. Median ${DAY.feed_ns[0]} ns, 99th percentile ${DAY.feed_ns[1]} ns; ${(DAY.lat_hist.slice(100).reduce((s, v) => s + v, 0) / histTotal * 100).toFixed(1)}% took longer than 1 µs and are off the right edge.`;
 lineChart('c-hist', { label: 'Latency distribution', series: [{ v: histShown.map(v => v / histTotal * 100), cls: 'a', area: true }], xTicks: [0, 20, 40, 60, 80, 99],
   xFmt: i => i * 10 + ' ns', yFmt: v => v.toFixed(v < 10 ? 1 : 0) + '%', tipFmt: v => v.toFixed(2) + '% of messages' });
+
+/* ---------- queue audit ---------- */
+tiles('tiles-q', [
+  [int(QUEUE.executions), 'executions checked'],
+  ['0', 'ordinary executions out of turn, of ' + compact(5722824)],
+  [int(QUEUE.adds_out_of_sequence), 'adds arriving out of number order'],
+  [String(QUEUE.not_best_price), 'not at the best price, all around halts'],
+]);
+$('q-note').textContent = `${compact(QUEUE.entry.reduce((s, e) => s + e[1], 0))} orders that joined or improved the best price in continuous trading. An order with 5,000 or more shares ahead of it traded ${(QUEUE.entry[7][2] / QUEUE.entry[7][1] * 100).toFixed(1)}% of the time.`;
+bars('b-fill', QUEUE.entry.map((e, i) => ({ l: i ? e[0] + ' shares' : 'None: a new best price', v: e[2] / e[1] * 100, a: i > 0 })), v => v.toFixed(1) + '%');
 
 /* ---------- signal ---------- */
 const sig0 = DAY.signal.map(r => r[1] / r[0] * 100), sig1 = DAY.signal.map(r => r[3] / r[2] * 100);

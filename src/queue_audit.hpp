@@ -40,9 +40,8 @@ public:
     // NASDAQ's ITCH specification does not say whether a replace that only shrinks an order
     // keeps its place in the queue. Run the audit under both readings and compare.
     bool resize_keeps_priority = false;
-    // What "oldest" means. Add messages normally arrive in reference-number order, but not
-    // always: orders entered before the open are released onto the book at 09:30 in a
-    // different order from the one they were entered in.
+    // What "oldest" means. Add messages normally arrive in reference-number order, but
+    // not always (0.26% of adds on 30 Dec 2019, mostly just after the open).
     //   false: the order whose Add message arrived first.
     //   true:  the order with the lowest reference number.
     bool priority_by_reference = false;

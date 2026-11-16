@@ -1,0 +1,39 @@
+model                oldest = lowest reference number; a size-only replace loses its place
+messages             268744780 in 96.3 s (0 malformed)
+adds                 140270523, of which 360450 arrived after a higher-numbered order at the same level
+executions           5822741
+  head of queue      5740103 (98.5808%)
+  not at best price  273 (0.0047%)
+  not oldest         82365 (1.4145%); orders ahead: 1: 5907, 2-5: 23125, 6-20: 50138, 21+: 3195
+exceptions by time of day, message type and stock status (price | time):
+  09:30:00-09:30:05  C printable      trading                                0 |        82
+  09:30:00-09:30:05  C non-printable  trading                                0 |         1
+  regular hours      C printable      trading                                0 |     78436
+  regular hours      C non-printable  trading                                0 |      3819
+  regular hours      C non-printable  within 1 s of a status change        214 |         9
+  regular hours      C non-printable  halted, paused or quote-only          59 |         0
+  16:00:00-16:00:05  C printable      trading                                0 |         2
+  16:00:00-16:00:05  C non-printable  trading                                0 |        14
+  after 16:00:05     C non-printable  trading                                0 |         2
+not-oldest executions by how the order entered its queue and how it executed:
+  new order                                  C, at displayed price                        9
+  new order                                  C, more aggressive than displayed        75908
+  new order                                  C, less aggressive than displayed           11
+  replace: same price, size not increased    C, more aggressive than displayed         6273
+  replace: price changed or size increased   C, more aggressive than displayed          164
+all executions by price:
+  E, at displayed price                  5722824
+  C, at displayed price                     2257
+  C, more aggressive than displayed        95739
+  C, less aggressive than displayed         1921
+fill rate by displayed shares ahead when the order joined or improved the best price:
+  ahead            orders     filled    shares filled
+  0              14833394      9.12%            4.43%
+  1-99            2904290     12.87%            9.66%
+  100-199         7185460      8.28%            5.96%
+  200-499         9958560      6.25%            4.49%
+  500-999         7512517      4.24%            3.25%
+  1000-1999       7230477      3.35%            2.56%
+  2000-4999       7107201      2.67%            1.89%
+  5000+           8063773      2.08%            0.68%
+consistency          0 live orders in 0 levels at end; queues agree with the price-level books

@@ -34,9 +34,22 @@ messages, 04:00 to 20:00), streamed with `gunzip -c | itchfh -`:
 
 ### Benchmarks
 
-Benchmark numbers: first 2 GB of NASDAQ's 30 Dec 2019 file (64.5M messages, 04:00 to
-10:23:36, 8,906 symbols), 2-vCPU Linux VM on a Ryzen 7 PRO 7840U, threads
-pinned. Re-run on bare metal before quoting.
+First 2 GB of the session (64.5M messages), three runs per build with `scripts/bench.sh`:
+Ryzen 7 PRO 7840U under WSL2 (kernel 6.6), 16 threads online, feed thread pinned to
+core 2 and the consumer to core 4.
+
+| Build | Throughput | Avg | p50 | p99 | p99.9 |
+|---|---|---|---|---|---|
+| Baseline: `std::unordered_map` + `std::map` | 1.4-1.5M msg/s | 689-725 ns | 584-617 ns | 2.4-2.6 us | 12.1-16.1 us |
+| Peregrine | 6.6-6.9M msg/s | 145-152 ns | 109-111 ns | 657-688 ns | 1.9-2.2 us |
+
+WSL2 is itself a lightweight VM, so these are not tuned bare-metal numbers.
+
+### Development history
+
+How the optimized build got there, measured during development in a 2-vCPU Linux VM on
+the same laptop, on the same 2 GB slice (04:00 to 10:23:36, 8,906 symbols), threads
+pinned. Compare the rows with each other, not with the table above.
 
 | Build | Throughput | Avg | p50 | p99 | p99.9 |
 |---|---|---|---|---|---|
@@ -165,6 +178,48 @@ queue latency   p50 1172  p99 1347450  p99.9 2269596  max 29607715 ns (publish t
 
 The AAPL line is empty because the book is empty at 20:00.
 
+## Queue priority audit
+
+An exchange promises price-time priority: the best price trades first, and at one
+price the oldest order trades first. `build/queue_audit` rebuilds every price level as
+a queue of individual orders and checks each execution against that, among the
+displayed orders ITCH shows. Full session, 30 Dec 2019 (`docs/queue_audit.txt`):
+
+- **Price priority.** Of 5,822,741 executions, 273 (0.005%) were not at the best
+  displayed price on their side. All were non-printable `C` executions in stocks that
+  were halted, paused, or within one second of a status change.
+- **Time priority, ranked by arrival.** Treating the order whose Add message arrived
+  first as the oldest leaves 10,565 ordinary (`E`) executions that appear to jump an
+  older order; 86% of them fall between 09:30 and 10:00.
+- **Time priority, ranked by reference number.** Treating the lowest order reference
+  number as the oldest leaves zero: all 5,722,824 `E` executions hit the
+  lowest-numbered order at the best displayed price. The difference is 360,450 adds
+  (of 140,270,523) that reach the feed after a higher-numbered order at the same price
+  level. Most of the apparent jumps come just after the open, which would fit orders
+  entered earlier reaching the book at 09:30 out of entry order; that part is a guess.
+- **Hidden ranking price.** The 82,365 time exceptions that remain are all `C`
+  messages, and 82,345 of them executed at a price more aggressive than the order
+  displayed, which fits the order being ranked at a better price than the one shown.
+- **Replaces.** A replace gets a new, higher reference number, and the zero-exception
+  result holds with it at the back of its queue. Under arrival ranking, letting a
+  size-only replace keep its place adds 588 exceptions.
+
+These are what one day of data is consistent with, not rules quoted from NASDAQ.
+
+The same pass measures how often an order trades, by the displayed shares already
+ahead of it when it joined or improved the best price in continuous trading:
+
+| Shares ahead | Orders | Traded at least once | Shares traded |
+|---|---|---|---|
+| 0 (new best price) | 14,833,394 | 9.12% | 4.43% |
+| 1-99 | 2,904,290 | 12.87% | 9.66% |
+| 100-199 | 7,185,460 | 8.28% | 5.96% |
+| 200-499 | 9,958,560 | 6.25% | 4.49% |
+| 500-999 | 7,512,517 | 4.24% | 3.25% |
+| 1000-1999 | 7,230,477 | 3.35% | 2.56% |
+| 2000-4999 | 7,107,201 | 2.67% | 1.89% |
+| 5000+ | 8,063,773 | 2.08% | 0.68% |
+
 ## Design
 
 - **Zero-copy decode** (`include/itch.hpp`): fields are byte-swapped straight out
@@ -179,9 +234,14 @@ The AAPL line is empty because the book is empty at 20:00.
 - **MoldUDP64** (`include/mold.hpp`): packets ahead of a gap are buffered, the
   missing range is requested (and re-requested after 20 ms), and messages reach
   the book exactly once, in order. Packets from another session are ignored, and
-  the receiver gives up with an error if the sender is silent for 5 seconds.
+  the receiver gives up with an error if the sender is silent for 5 seconds or a gap
+  outgrows its buffer (65,536 packets). Within each packet it prefetches before applying,
+  which took the UDP path's median from 161-190 ns to 81-100 ns per message.
 - **Pipeline** (`src/pipeline.hpp`): the feed side (books, publishing, conflation) and the
   consumer side (latest BBO, imbalance study), shared by the binary and the tests.
+- **Queue audit** (`src/queue_audit.hpp`, `tools/queue_audit.cpp`): per-level order queues
+  as intrusive linked lists through a second flat hash map, kept alongside the
+  price-level books and checked against them at the end of the run.
 - **Export** (`src/export.hpp`): per-minute activity, message mix and depth snapshots as JSON
   for the demo page.
 - **Conflation**: a per-symbol dirty flag plus a FIFO of dirty symbols; each
@@ -202,6 +262,7 @@ make
 ./build/itchfh --pin 0,1 --signal data/12302019.itch AAPL SPY MSFT
 ./build/itchfh_baseline --pin 0,1 data/12302019.itch
 ./scripts/bench.sh                           # both builds, 3 pinned runs each, as a table
+gunzip -c day.gz | ./build/queue_audit - --priority-by-reference   # the priority audit
 ./build/itchfh --conflate --queue 64 --work 2000 data/sample_50MB.itch
 gunzip -c day.gz | ./build/itchfh --signal - AAPL > docs/signal_run.txt   # stream without unpacking to disk
 python3 scripts/plot.py docs/signal_run.txt  # regenerate the charts
@@ -225,13 +286,13 @@ ThreadSanitizer; all three are clean.
 
 Further tests cover the `F` and `C` message layouts, the integrity counters (a reused
 order reference, a reduction against the wrong stock), conflation through a 4-slot
-queue, and the JSON export.
+queue, the JSON export, and the queue audit on a scripted stream.
 
 ## Not done
 
-- Bare-metal numbers: everything above was measured in a 2-vCPU VM.
-- Lookahead prefetch on the UDP path (file replay only today).
-- Bounded gap buffer with snapshot fallback for very large gaps.
+- Bare-metal numbers: the benchmarks ran under WSL2, the full-day runs in a 2-vCPU VM.
+- Snapshot recovery for gaps too large to replay (today the receiver stops with an error).
+- The queue audit on more than one day, and against the exchange's published order-type rules.
 - Signal study at fixed lead times and across multiple days.
 
 CI (`.github/workflows/ci.yml`) runs the unit tests and the UDP loss test on a
