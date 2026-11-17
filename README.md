@@ -43,7 +43,22 @@ core 2 and the consumer to core 4.
 | Baseline: `std::unordered_map` + `std::map` | 1.4-1.5M msg/s | 689-725 ns | 584-617 ns | 2.4-2.6 us | 12.1-16.1 us |
 | Peregrine | 6.6-6.9M msg/s | 145-152 ns | 109-111 ns | 657-688 ns | 1.9-2.2 us |
 
-WSL2 is itself a lightweight VM, so these are not tuned bare-metal numbers.
+WSL2 is itself a lightweight VM, so these are not tuned bare-metal numbers. This table
+was measured before the two changes below and timed with `steady_clock`; re-run
+`scripts/bench.sh` for current numbers.
+
+**Timing.** Latency samples now use the processor's time-stamp counter (`rdtsc`, fenced
+with `lfence`/`rdtscp`), converted to nanoseconds with a rate calibrated against
+`steady_clock` at startup. The counter is invariant on this CPU, so the feed and consumer
+threads' readings are comparable. Two limits, printed with every run: AMD Zen advances
+the counter in steps of 33 ticks, so samples have **10 ns resolution**, and an empty
+timed region reads 20-30 ns, which is included in every sample.
+
+**Huge pages.** The order map (128 MB) is now backed by transparent huge pages, written
+once at startup so Linux can back it with 2 MB pages and no page faults land in the run.
+In 8 paired runs in the 2-vCPU VM it won 7, with median throughput 6.55M against
+6.05M msg/s. `scripts/bench.sh` measures it on your machine as the `itchfh_4k_pages`
+row (`PEREGRINE_NO_HUGEPAGES=1`).
 
 ### Development history
 
@@ -58,7 +73,7 @@ pinned. Compare the rows with each other, not with the table above.
 | v2: v1 + lookahead prefetch + 16-byte slots | 5.1-5.5M msg/s | 183-197 ns | 120 ns | 0.67-0.73 us | 2.3 us |
 
 Percentiles are per-message (decode + book update + publish), sampled 1 in 64,
-and each sample includes one clock read.
+timed with `steady_clock`; each sample includes one clock read.
 
 A later change made every execute, cancel, delete and replace do one hash lookup
 where it had done up to three. In three back-to-back paired runs on the same slice
@@ -95,8 +110,9 @@ Sixteen messages early it prefetches the order's hash slot and the symbol's book
 header; eight messages early, with the header now cached, it prefetches the
 top-of-book end of both level arrays. Distance 8 was the best of 1 to 32.
 
-Tried and dropped: backing the order map with transparent huge pages. No
-measurable change here (the VM reported no huge pages in use); untested on bare metal.
+Huge pages were first tried here and looked useless, but that test was flawed: the map's
+first touch of each page was a read, which Linux backs with the shared zero page and
+never promotes. See *Huge pages* above for the corrected measurement.
 
 ### Slow consumers: backpressure vs conflation
 

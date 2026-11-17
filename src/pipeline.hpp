@@ -15,6 +15,7 @@
 #include "book.hpp"
 #include "itch.hpp"
 #include "spsc.hpp"
+#include "tsc.hpp"
 
 using Clock = std::chrono::steady_clock;
 inline uint64_t now_ns() {
@@ -31,8 +32,8 @@ inline void pin(int cpu) {
 }
 
 struct BboEvent {
-    uint64_t ts;      // exchange timestamp, ns since midnight
-    uint64_t pub_ns;  // local publish time on 1 in 16 events, else 0 (queue latency sampling)
+    uint64_t ts;        // exchange timestamp, ns since midnight
+    uint64_t pub_tick;  // tsc::now() at publish on 1 in 16 events, else 0 (queue latency sampling)
     Top top;
     uint16_t locate;
 };
@@ -52,7 +53,7 @@ struct Feed {
     size_t backlog_head = 0;
 
     bool try_push(uint16_t loc, uint64_t ts) {
-        const BboEvent e{ts, (published & 15) == 0 ? now_ns() : 0, books.top(loc), loc};
+        const BboEvent e{ts, (published & 15) == 0 ? tsc::now() : 0, books.top(loc), loc};
         if (!out.push(e)) return false;
         ++published;
         return true;
@@ -112,7 +113,7 @@ struct Consumer {
     bool signal = false;   // run the imbalance study
     uint64_t work_ns = 0;  // simulated work per update
     std::vector<Top> last = std::vector<Top>(itch::kLocates);
-    std::vector<uint32_t> queue_ns = {};  // sampled publish-to-consume latency
+    std::vector<uint32_t> queue_lat = {};  // sampled publish-to-consume latency: ticks, then ns after the run
     uint64_t consumed = 0, crossed = 0;
     // Mid-price moves by imbalance decile. Columns: moves and up-moves with imbalance taken
     // when the quote was first posted, then the same with imbalance taken just before the
@@ -149,7 +150,7 @@ struct Consumer {
     }
 
     void handle(const BboEvent& e) {
-        if (e.pub_ns) queue_ns.push_back(uint32_t(std::min<uint64_t>(now_ns() - e.pub_ns, UINT32_MAX)));
+        if (e.pub_tick) queue_lat.push_back(tsc::sample(e.pub_tick, tsc::now()));
         ++consumed;
         if (signal && e.ts >= itch::kRegularOpenNs && e.ts < itch::kRegularCloseNs) study(e);
         last[e.locate] = e.top;

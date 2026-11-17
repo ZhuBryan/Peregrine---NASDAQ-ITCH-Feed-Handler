@@ -1,8 +1,14 @@
 // Full-depth order books for every symbol on the feed, keyed by ITCH stock locate.
 // Build with -DBASELINE to swap in std::unordered_map + std::map for comparison.
 #pragma once
+#include <sys/mman.h>
+
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <type_traits>
 #include <vector>
 
 #include "itch.hpp"
@@ -27,16 +33,35 @@ struct Order {
 // numbers are never 0. V must be trivially copyable.
 template <class V>
 class FlatMap {
+    static_assert(std::is_trivially_copyable_v<V>);
     struct Slot {
         uint64_t key;
         V val;
     };
-    std::vector<Slot> s_;
-    size_t mask_, size_ = 0;
-    int shift_;
+    Slot* s_ = nullptr;
+    size_t cap_ = 0, mask_ = 0, size_ = 0;
+    int shift_ = 0;
     size_t home(uint64_t k) const { return (k * 0x9E3779B97F4A7C15ull) >> shift_; }
+    // Lookups land on random slots across the whole table, which at full size (128 MB for the
+    // order map) misses the TLB on almost every access with 4 KiB pages. Map it directly and
+    // ask for transparent huge pages. A zeroed slot is an empty slot.
+    static Slot* allocate(size_t cap) {
+        void* m = mmap(nullptr, cap * sizeof(Slot), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (m == MAP_FAILED) {
+            std::perror("FlatMap mmap");
+            std::abort();
+        }
+        // PEREGRINE_NO_HUGEPAGES=1 turns this off, for measuring what it is worth.
+        static const bool huge = !std::getenv("PEREGRINE_NO_HUGEPAGES");
+        if (huge) madvise(m, cap * sizeof(Slot), MADV_HUGEPAGE);  // advisory: ignored where unsupported
+        // Write every page now. A first touch that only reads maps the shared zero page, which
+        // Linux will not later back with a huge page; and page faults belong outside the run.
+        std::memset(m, 0, cap * sizeof(Slot));
+        return static_cast<Slot*>(m);
+    }
     void init(size_t cap) {
-        s_.assign(cap, Slot{});
+        s_ = allocate(cap);
+        cap_ = cap;
         mask_ = cap - 1;
         shift_ = 64 - __builtin_ctzll(cap);
     }
@@ -49,10 +74,12 @@ class FlatMap {
         return true;
     }
     void grow() {  // a rehash stalls the caller; size the map up front to avoid it
-        std::vector<Slot> old = std::move(s_);
-        init(old.size() * 2);
-        for (auto& x : old)
-            if (x.key) place(x.key, x.val);
+        Slot* old = s_;
+        const size_t old_cap = cap_;
+        init(old_cap * 2);
+        for (size_t i = 0; i < old_cap; ++i)
+            if (old[i].key) place(old[i].key, old[i].val);
+        munmap(old, old_cap * sizeof(Slot));
     }
     size_t find_idx(uint64_t k) const {
         for (size_t i = home(k);; i = (i + 1) & mask_) {
@@ -63,13 +90,16 @@ class FlatMap {
 
 public:
     explicit FlatMap(size_t cap_pow2) { init(cap_pow2); }
+    ~FlatMap() { munmap(s_, cap_ * sizeof(Slot)); }
+    FlatMap(const FlatMap&) = delete;
+    FlatMap& operator=(const FlatMap&) = delete;
     // Pointers are invalidated by insert (growth) and by erase (entries shift).
     V* find(uint64_t k) {
         size_t i = find_idx(k);
         return i == SIZE_MAX ? nullptr : &s_[i].val;
     }
-    bool insert(uint64_t k, const V& v) {         // false if k is already present
-        if ((size_ + 1) * 2 > s_.size()) grow();  // max load factor 0.5
+    bool insert(uint64_t k, const V& v) {    // false if k is already present
+        if ((size_ + 1) * 2 > cap_) grow();  // max load factor 0.5
         if (!place(k, v)) return false;
         ++size_;
         return true;
@@ -77,7 +107,7 @@ public:
     // `v` must be the pointer find(k) returned; it locates the slot without probing again.
     void erase(uint64_t, V* v) {
         const auto* slot = reinterpret_cast<const Slot*>(reinterpret_cast<const char*>(v) - offsetof(Slot, val));
-        size_t i = size_t(slot - s_.data());
+        size_t i = size_t(slot - s_);
         for (size_t j = (i + 1) & mask_; s_[j].key; j = (j + 1) & mask_) {
             // s_[j] may move back into the hole at i unless its home lies in (i, j]
             if (((j - home(s_[j].key)) & mask_) >= ((j - i) & mask_)) {

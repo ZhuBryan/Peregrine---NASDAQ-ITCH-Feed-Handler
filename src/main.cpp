@@ -104,8 +104,9 @@ struct Run {
     uint64_t msgs = 0, malformed = 0;
     bool complete = true;  // false if a UDP session ended early
     double secs = 0;
-    std::vector<uint32_t> feed_ns = {};  // sampled per-message latency
-    size_t mismatches = 0;               // symbols where the consumer's view differs from the books
+    std::vector<uint32_t> feed_lat = {};  // sampled per-message latency: ticks, then ns after the run
+    size_t mismatches = 0;                // symbols where the consumer's view differs from the books
+    double ns_per_tick = 1.0, timer_overhead_ns = 0, timer_resolution_ns = 1;
 };
 
 static void report(const Options& opt, const Feed& feed, const Consumer& consumer, const Run& run) {
@@ -157,12 +158,20 @@ static void report(const Options& opt, const Feed& feed, const Consumer& consume
     if (run.msgs)
         std::printf("throughput      %.1f M msgs/s (%.1f ns/msg avg)\n", run.msgs / run.secs / 1e6,
                     run.secs * 1e9 / run.msgs);
-    print_pcts("feed latency   ", run.feed_ns, " (decode + book + publish; includes one clock read)");
-    print_pcts("queue latency  ", consumer.queue_ns, " (publish to consume; includes one clock read)");
+    std::printf(
+        "timer           %s at %.3f GHz, %.0f ns resolution; an empty timed region reads %.0f ns, included in "
+        "every latency sample\n",
+        tsc::kSource, 1.0 / run.ns_per_tick, run.timer_resolution_ns, run.timer_overhead_ns);
+    print_pcts("feed latency   ", run.feed_lat, " (decode + book + publish)");
+    print_pcts("queue latency  ", consumer.queue_lat, " (publish to consume, across cores)");
 }
 
 int main(int argc, char** argv) {
     const Options opt = parse_args(argc, argv);
+    // Calibrated before the run so the 20 ms it takes stays out of the timed region.
+    const double ns_per_tick = tsc::ns_per_tick();
+    const double overhead_ns = double(tsc::overhead_ticks()) * ns_per_tick;
+    const double resolution_ns = double(tsc::resolution_ticks()) * ns_per_tick;
     const bool from_stdin = opt.file && std::string(opt.file) == "-";
 
     SpscQueue<BboEvent> queue(opt.queue_cap);
@@ -177,15 +186,18 @@ int main(int argc, char** argv) {
 
     pin(opt.pin_feed);
     Run run;
+    run.ns_per_tick = ns_per_tick;
+    run.timer_overhead_ns = overhead_ns;
+    run.timer_resolution_ns = resolution_ns;
     Exporter exporter;
     const bool exporting = opt.export_path != nullptr;
     // Per-message latency is sampled (1 in 64) so clock reads don't dominate the run.
     auto on_msg = [&](const uint8_t* m) {
         if (exporting) exporter.record(m, feed.books, feed.watch_loc, feed.changes);
         if ((run.msgs++ & 63) == 0) {
-            const uint64_t a = now_ns();
+            const uint64_t a = tsc::start();
             itch::decode(m, feed);
-            run.feed_ns.push_back(uint32_t(std::min<uint64_t>(now_ns() - a, UINT32_MAX)));
+            run.feed_lat.push_back(tsc::sample(a, tsc::stop()));
         } else {
             itch::decode(m, feed);
         }
@@ -238,8 +250,10 @@ int main(int argc, char** argv) {
     }
     done.store(true, std::memory_order_release);
     consumer_thread.join();
-    std::sort(run.feed_ns.begin(), run.feed_ns.end());
-    std::sort(consumer.queue_ns.begin(), consumer.queue_ns.end());
+    tsc::to_ns(run.feed_lat, ns_per_tick);
+    tsc::to_ns(consumer.queue_lat, ns_per_tick);
+    std::sort(run.feed_lat.begin(), run.feed_lat.end());
+    std::sort(consumer.queue_lat.begin(), consumer.queue_lat.end());
 
     // End-to-end check: what the consumer believes must equal the books, for every symbol.
     for (size_t loc = 0; loc < itch::kLocates; ++loc)
@@ -249,9 +263,9 @@ int main(int argc, char** argv) {
 
     if (exporting) {
         const Exporter::Summary summary{
-            run.msgs,          feed.book_msgs,           feed.changes, feed.books.unknown_refs, consumer.crossed,
-            feed.last_ts,      feed.books.live_orders(), run.secs,     run.mismatches == 0,     run.feed_ns,
-            consumer.queue_ns, consumer.moves,           feed.symbols, feed.watch_sym};
+            run.msgs,           feed.book_msgs,           feed.changes, feed.books.unknown_refs, consumer.crossed,
+            feed.last_ts,       feed.books.live_orders(), run.secs,     run.mismatches == 0,     run.feed_lat,
+            consumer.queue_lat, consumer.moves,           feed.symbols, feed.watch_sym};
         if (!exporter.write(opt.export_path, feed.books, summary)) {
             std::perror(opt.export_path);
             return 1;
