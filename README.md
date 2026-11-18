@@ -35,30 +35,33 @@ messages, 04:00 to 20:00), streamed with `gunzip -c | itchfh -`:
 ### Benchmarks
 
 First 2 GB of the session (64.5M messages), three runs per build with `scripts/bench.sh`:
-Ryzen 7 PRO 7840U under WSL2 (kernel 6.6), 16 threads online, feed thread pinned to
-core 2 and the consumer to core 4.
+Ryzen 7 PRO 7840U under WSL2 (kernel 6.6), on battery, 16 threads online, feed thread
+pinned to core 2 and the consumer to core 4.
 
 | Build | Throughput | Avg | p50 | p99 | p99.9 |
 |---|---|---|---|---|---|
-| Baseline: `std::unordered_map` + `std::map` | 1.4-1.5M msg/s | 689-725 ns | 584-617 ns | 2.4-2.6 us | 12.1-16.1 us |
-| Peregrine | 6.6-6.9M msg/s | 145-152 ns | 109-111 ns | 657-688 ns | 1.9-2.2 us |
+| Baseline: `std::unordered_map` + `std::map` | 1.7M msg/s | 584-586 ns | 491-501 ns | 2.2-2.3 us | 7.3-8.7 us |
+| Peregrine, 4 KiB pages | 7.2-7.4M msg/s | 135-139 ns | 88-90 ns | 609-628 ns | 1.7-1.9 us |
+| Peregrine | 7.9-8.2M msg/s | 122-126 ns | 86-90 ns | 564-597 ns | 1.6-1.8 us |
 
-WSL2 is itself a lightweight VM, so these are not tuned bare-metal numbers. This table
-was measured before the two changes below and timed with `steady_clock`; re-run
-`scripts/bench.sh` for current numbers.
+About 4.7x the baseline's throughput. Latency is per message (decode, book update and
+publish), sampled 1 in 64. WSL2 is itself a lightweight VM, so these are not tuned
+bare-metal numbers.
 
-**Timing.** Latency samples now use the processor's time-stamp counter (`rdtsc`, fenced
+**Timing.** Latency samples use the processor's time-stamp counter (`rdtsc`, fenced
 with `lfence`/`rdtscp`), converted to nanoseconds with a rate calibrated against
 `steady_clock` at startup. The counter is invariant on this CPU, so the feed and consumer
 threads' readings are comparable. Two limits, printed with every run: AMD Zen advances
 the counter in steps of 33 ticks, so samples have **10 ns resolution**, and an empty
-timed region reads 20-30 ns, which is included in every sample.
+timed region reads about 30 ns, which is included in every sample. One later run on the
+same laptop calibrated the counter 9% fast; the calibration now pairs each counter
+reading with the tightest of 64 clock brackets, so a thread descheduled mid-calibration
+cannot skew it.
 
-**Huge pages.** The order map (128 MB) is now backed by transparent huge pages, written
+**Huge pages.** The order map (128 MB) is backed by transparent huge pages, written
 once at startup so Linux can back it with 2 MB pages and no page faults land in the run.
-In 8 paired runs in the 2-vCPU VM it won 7, with median throughput 6.55M against
-6.05M msg/s. `scripts/bench.sh` measures it on your machine as the `itchfh_4k_pages`
-row (`PEREGRINE_NO_HUGEPAGES=1`).
+On the laptop it raised throughput about 11% (the middle row, measured with
+`PEREGRINE_NO_HUGEPAGES=1`); in 8 paired runs in a 2-vCPU VM it won 7.
 
 ### Development history
 

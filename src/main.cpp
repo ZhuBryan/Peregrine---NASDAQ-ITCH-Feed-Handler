@@ -168,7 +168,7 @@ static void report(const Options& opt, const Feed& feed, const Consumer& consume
 
 int main(int argc, char** argv) {
     const Options opt = parse_args(argc, argv);
-    // Calibrated before the run so the 20 ms it takes stays out of the timed region.
+    // Calibrated before the run so the 50 ms it takes stays out of the timed region.
     const double ns_per_tick = tsc::ns_per_tick();
     const double overhead_ns = double(tsc::overhead_ticks()) * ns_per_tick;
     const double resolution_ns = double(tsc::resolution_ticks()) * ns_per_tick;

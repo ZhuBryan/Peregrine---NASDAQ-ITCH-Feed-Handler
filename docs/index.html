@@ -216,7 +216,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 16px; color: var(--mute
 <section id="perf">
   <div class="sec-head">
     <h2>Performance</h2>
-    <p>Two builds of the same program on the first 2 GB of the session (64.5 million messages): three runs each under WSL2, feed and strategy threads pinned to separate cores. The baseline swaps in the C++ standard library's containers.</p>
+    <p>Builds of the same program on the first 2 GB of the session (64.5 million messages): three runs each under WSL2 on battery, feed and strategy threads pinned to separate cores. The baseline swaps in the C++ standard library's containers. Timed with the processor's cycle counter at 10 ns resolution; each sample includes about 30 ns of timer cost.</p>
   </div>
   <div class="grid2">
     <div class="card"><h3>Throughput, million messages per second</h3><div class="bars" id="b-tput"></div></div>
@@ -227,8 +227,9 @@ footer { border-top: 1px solid var(--rule); padding-top: 16px; color: var(--mute
     <div class="scroll"><table>
       <thead><tr><th>Build</th><th class="num">Median</th><th class="num">99th</th><th class="num">99.9th</th></tr></thead>
       <tbody>
-        <tr><td>Baseline: std::unordered_map + std::map</td><td class="num">584 to 617 ns</td><td class="num">2.4 to 2.6 µs</td><td class="num">12.1 to 16.1 µs</td></tr>
-        <tr class="hl"><td>Peregrine: flat hash map, sorted level arrays, prefetching</td><td class="num">109 to 111 ns</td><td class="num">657 to 688 ns</td><td class="num">1.9 to 2.2 µs</td></tr>
+        <tr><td>Baseline: std::unordered_map + std::map</td><td class="num">491 to 501 ns</td><td class="num">2.2 to 2.3 µs</td><td class="num">7.3 to 8.7 µs</td></tr>
+        <tr><td>Peregrine with 4 KiB pages</td><td class="num">88 to 90 ns</td><td class="num">609 to 628 ns</td><td class="num">1.7 to 1.9 µs</td></tr>
+        <tr class="hl"><td>Peregrine: flat hash map, sorted level arrays, prefetching, huge pages</td><td class="num">86 to 90 ns</td><td class="num">564 to 597 ns</td><td class="num">1.6 to 1.8 µs</td></tr>
       </tbody>
     </table></div>
     <p>Each time covers decode, book update and publish. Sampled on 1 message in 64; every sample includes one clock read.</p>
@@ -370,9 +371,9 @@ const sigAll = DAY.signal.reduce((s, r) => s + r[0], 0);
 tiles('tiles', [
   [compact(DAY.messages), 'messages in one trading day'],
   [String(DAY.unknown_refs), 'order-tracking errors'],
-  ['6.6 to 6.9M', 'messages per second'],
-  ['110 ns', 'median time per message'],
-  ['4.4x', 'faster than the std baseline'],
+  ['7.9 to 8.2M', 'messages per second'],
+  ['86 to 90 ns', 'median time per message'],
+  ['4.7x', 'faster than the std baseline'],
   [compact(DAY.bbo_changes), 'best-price updates published'],
 ]);
 tiles('tiles2', [
@@ -399,8 +400,8 @@ bars('b-types', types.map(([k, v]) => ({ l: TYPE[k] || k, s: (v / DAY.messages *
 bars('b-top', DAY.top.slice(0, 10).map(([l, v]) => ({ l: `<span class="num">${l}</span>`, v, a: l === DAY.watch })), compact);
 
 /* ---------- performance (benchmark table values) ---------- */
-bars('b-tput', [{ l: 'Baseline', s: 'std containers', v: 1.45 }, { l: 'Peregrine', s: 'flat map, sorted arrays, prefetching', v: 6.7, a: 1 }], v => v.toFixed(1) + 'M');
-bars('b-p50', [{ l: 'Baseline', s: 'std containers', v: 596 }, { l: 'Peregrine', s: 'flat map, sorted arrays, prefetching', v: 110, a: 1 }], v => v + ' ns');
+bars('b-tput', [{ l: 'Baseline', s: 'std containers', v: 1.7 }, { l: 'Peregrine, 4 KiB pages', s: 'flat map, sorted arrays, prefetching', v: 7.3 }, { l: 'Peregrine', s: 'adds huge pages', v: 8.1, a: 1 }], v => v.toFixed(1) + 'M');
+bars('b-p50', [{ l: 'Baseline', s: 'std containers', v: 496 }, { l: 'Peregrine, 4 KiB pages', s: 'flat map, sorted arrays, prefetching', v: 89 }, { l: 'Peregrine', s: 'adds huge pages', v: 88, a: 1 }], v => v + ' ns');
 bars('b-stage', [{ l: 'Decode only', v: 11 }, { l: 'Add order map', v: 67.5 }, { l: 'Add price levels', s: 'whole feed thread, before', v: 211 }, { l: 'Add prefetching', v: 125.5 }, { l: 'Add 16-byte slots', s: 'whole feed thread, after', v: 119.5, a: 1 }], v => Math.round(v) + ' ns');
 bars('b-dist', [[1, 217.9], [2, 135.4], [4, 132.6], [8, 126.1], [16, 147.4], [32, 139.9]].map(([d, v]) => ({ l: `${d} ahead`, v, a: d === 8 })), v => v.toFixed(0) + ' ns');
 

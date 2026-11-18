@@ -46,17 +46,42 @@ inline uint64_t stop() {
 }
 #endif
 
-// Nanoseconds per tick, measured against steady_clock over about 20 ms.
+#ifdef PEREGRINE_HAVE_TSC
+// One counter reading paired with the steady_clock time it was taken at. The counter is
+// read between two clock reads, and of 64 tries the tightest bracket wins, so a thread
+// that is descheduled between reads cannot skew the pairing.
+struct Reading {
+    double ns;
+    uint64_t tick;
+};
+inline Reading paired_reading() {
+    using namespace std::chrono;
+    auto clock_ns = [] { return duration<double, std::nano>(steady_clock::now().time_since_epoch()).count(); };
+    Reading best{0, 0};
+    double width = 1e300;
+    for (int i = 0; i < 64; ++i) {
+        const double a = clock_ns();
+        const uint64_t k = now();
+        const double b = clock_ns();
+        if (b - a < width) {
+            width = b - a;
+            best = {(a + b) / 2, k};
+        }
+    }
+    return best;
+}
+#endif
+
+// Nanoseconds per tick, measured against steady_clock over about 50 ms.
 inline double ns_per_tick() {
 #ifdef PEREGRINE_HAVE_TSC
     using namespace std::chrono;
-    const auto t0 = steady_clock::now();
-    const uint64_t k0 = now();
-    while (steady_clock::now() - t0 < milliseconds(20)) {
+    const Reading r0 = paired_reading();
+    const auto until = steady_clock::now() + milliseconds(50);
+    while (steady_clock::now() < until) {
     }
-    const auto t1 = steady_clock::now();
-    const uint64_t k1 = now();
-    return double(duration_cast<nanoseconds>(t1 - t0).count()) / double(k1 - k0);
+    const Reading r1 = paired_reading();
+    return (r1.ns - r0.ns) / double(r1.tick - r0.tick);
 #else
     return 1.0;
 #endif
