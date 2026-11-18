@@ -55,8 +55,10 @@ public:
         uint64_t not_best_price = 0;  // a better-priced displayed order existed on the same side
         uint64_t not_oldest = 0;      // at the best price, but older displayed orders were waiting
         uint64_t exceptions[kContexts][kKinds][kStatuses][2] = {};  // last index: 0 = price, 1 = time
-        uint64_t adds = 0, adds_out_of_sequence = 0;  // adds whose reference is below the level's newest order
-        uint64_t jumped[4] = {};                      // not_oldest by orders ahead: 1, 2-5, 6-20, 21+
+        // Adds whose reference is below that of an order still resting at the same level.
+        // Only counted with priority_by_reference, where the queue is kept in reference order.
+        uint64_t adds = 0, adds_out_of_sequence = 0;
+        uint64_t jumped[4] = {};  // not_oldest by orders ahead: 1, 2-5, 6-20, 21+
         // Time-priority exceptions by how the order entered the queue and how it executed.
         uint64_t executions_by_price[kPrices] = {};
         uint64_t not_oldest_by[kOrigins][kPrices] = {};
@@ -118,15 +120,14 @@ private:
         // number, the newest order with a lower reference.
         ++stats_.adds;
         uint64_t prev = lvl->tail, next = 0, ahead = lvl->qty;
-        if (prev && prev > ref) {
+        if (priority_by_reference && prev && prev > ref) {
             ++stats_.adds_out_of_sequence;
-            if (priority_by_reference)
-                while (prev && prev > ref) {
-                    const QOrder* later = orders_.find(prev);
-                    ahead -= later->qty;
-                    next = prev;
-                    prev = later->prev;
-                }
+            while (prev && prev > ref) {
+                const QOrder* later = orders_.find(prev);
+                ahead -= later->qty;
+                next = prev;
+                prev = later->prev;
+            }
         }
         // Track fill outcomes for orders entering at the touch in continuous trading.
         const Top top = books_.top(loc);

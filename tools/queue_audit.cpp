@@ -65,8 +65,13 @@ int main(int argc, char** argv) {
                 priority_by_reference ? "lowest reference number" : "first Add message to arrive",
                 resize_keeps_priority ? "keeps" : "loses");
     std::printf("messages             %llu in %.1f s (%llu malformed)\n", ull(msgs), secs, ull(malformed));
-    std::printf("adds                 %llu, of which %llu arrived after a higher-numbered order at the same level\n",
-                ull(s.adds), ull(s.adds_out_of_sequence));
+    if (priority_by_reference)
+        std::printf(
+            "adds                 %llu, of which %llu arrived after a higher-numbered order still resting at the "
+            "same level\n",
+            ull(s.adds), ull(s.adds_out_of_sequence));
+    else
+        std::printf("adds                 %llu\n", ull(s.adds));
     std::printf("executions           %llu\n", ull(s.executions));
     std::printf("  head of queue      %llu (%.4f%%)\n", ull(s.head_of_queue), pct(s.head_of_queue, s.executions));
     std::printf("  not at best price  %llu (%.4f%%)\n", ull(s.not_best_price), pct(s.not_best_price, s.executions));

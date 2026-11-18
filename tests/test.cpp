@@ -421,6 +421,27 @@ static void test_queue_audit() {
     CHECK(audit.books().top(1).bid_px == 100000 && audit.books().top(1).bid_qty == 100);
 }
 
+// The two meanings of "oldest": an order that reaches the feed after a higher-numbered one
+// at the same price is behind it by arrival, ahead of it by reference number.
+static void test_queue_audit_by_reference() {
+    const uint64_t t = itch::kRegularOpenNs + 60'000'000'000ull;
+    Buf b;
+    enc_add(b, 1, t + 1, 10, 'S', 100, 100000);
+    enc_add(b, 1, t + 2, 5, 'S', 100, 100000);  // arrives second, numbered lower
+    enc_add(b, 1, t + 3, 20, 'S', 100, 100000);
+    enc_exec(b, 1, t + 4, 5, 100);
+    for (bool by_reference : {false, true}) {
+        QueueAudit audit;
+        audit.priority_by_reference = by_reference;
+        itch::for_each_message(b.data(), b.size(), [&](const uint8_t* m) { audit.on_message(m); });
+        const QueueAudit::Stats& s = audit.stats();
+        CHECK(s.adds == 3 && s.adds_out_of_sequence == (by_reference ? 1u : 0u));  // counted by reference only
+        CHECK(s.executions == 1 && s.head_of_queue == (by_reference ? 1u : 0u));
+        CHECK(s.not_oldest == (by_reference ? 0u : 1u));
+        CHECK(audit.live_orders() == 2 && audit.books().live_orders() == 2);
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc == 3 && std::string(argv[1]) == "--emit") {  // write a synthetic ITCH file and exit
         std::FILE* f = std::fopen(argv[2], "wb");
@@ -437,6 +458,7 @@ int main(int argc, char** argv) {
     test_conflation();
     test_export();
     test_queue_audit();
+    test_queue_audit_by_reference();
     for (unsigned seed = 1; seed <= 5; ++seed) test_differential(seed, 20000);
     test_spsc();
     std::puts("all tests passed");
