@@ -255,21 +255,21 @@ footer { border-top: 1px solid var(--rule); padding-top: 16px; color: var(--mute
 <section id="queue">
   <div class="sec-head">
     <h2>Does the exchange keep its queue?</h2>
-    <p>An exchange promises price-time priority: the best price trades first, and at one price the oldest order trades first. A second tool rebuilds every price level as a queue of individual orders and checks each of the day's executions against that promise.</p>
+    <p>An exchange promises price-time priority: the best price trades first, and at one price the oldest order trades first. A second tool rebuilds every price level as a queue of individual orders and checks every execution against that promise, on this session and on a second one, 30 July 2019.</p>
   </div>
   <div class="tiles" id="tiles-q"></div>
   <div class="grid2">
     <div class="card">
       <h3>What the audit found</h3>
       <ul class="checks">
-        <li>Ranking orders by when their Add message arrives leaves <span class="num">10,565</span> ordinary executions that appear to jump an older order, most of them in the half hour after the open.</li>
-        <li>Ranking by order reference number leaves none. Some orders reach the feed after a higher-numbered order at the same price, mostly just after the open, and the exchange trades them in number order.</li>
+        <li>Ranking orders by when their Add message arrives leaves thousands of ordinary executions that appear to jump an older order: <span class="num">10,565</span> on 30 December and <span class="num">5,277</span> on 30 July.</li>
+        <li>Ranking by order reference number leaves none, on either day. Some orders reach the feed after a higher-numbered order at the same price, mostly just after the open, and the exchange trades them in number order.</li>
         <li>The remaining out-of-turn executions are all of one message type: orders executing at a price better than the one they displayed, which fits their being ranked at that better price.</li>
         <li>A replace that only shrinks an order behaves as a new order at the back of the queue.</li>
       </ul>
-      <p>This is one day of data, and the feed shows displayed orders only. The findings are what the data is consistent with, not rules quoted from the exchange.</p>
+      <p>This is two days of data, and the feed shows displayed orders only. The findings are what the data is consistent with, not rules quoted from the exchange.</p>
     </div>
-    <div class="card"><h3>Chance of trading, by shares already waiting ahead</h3><p id="q-note"></p><div class="bars" id="b-fill"></div></div>
+    <div class="card"><h3>Chance of trading, by shares already waiting ahead (30 Dec)</h3><p id="q-note"></p><div class="bars" id="b-fill"></div></div>
   </div>
 </section>
 
@@ -411,10 +411,10 @@ lineChart('c-hist', { label: 'Latency distribution', series: [{ v: histShown.map
 
 /* ---------- queue audit ---------- */
 tiles('tiles-q', [
-  [int(QUEUE.executions), 'executions checked'],
-  ['0', 'ordinary executions out of turn, of ' + compact(5722824)],
-  [int(QUEUE.adds_out_of_sequence), 'adds arriving out of number order'],
-  [String(QUEUE.not_best_price), 'not at the best price, all around halts'],
+  ['13.5M', 'executions checked over two trading days'],
+  ['0', 'ordinary executions out of turn, of 13.3M'],
+  ['0.25%', 'of adds reach the feed out of number order'],
+  ['291', 'not at the best price, all around halts'],
 ]);
 $('q-note').textContent = `${compact(QUEUE.entry.reduce((s, e) => s + e[1], 0))} orders that joined or improved the best price in continuous trading. An order with 5,000 or more shares ahead of it traded ${(QUEUE.entry[7][2] / QUEUE.entry[7][1] * 100).toFixed(1)}% of the time.`;
 bars('b-fill', QUEUE.entry.map((e, i) => ({ l: i ? e[0] + ' shares' : 'None: a new best price', v: e[2] / e[1] * 100, a: i > 0 })), v => v.toFixed(1) + '%');

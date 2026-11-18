@@ -199,42 +199,56 @@ The AAPL line is empty because the book is empty at 20:00.
 An exchange promises price-time priority: the best price trades first, and at one
 price the oldest order trades first. `build/queue_audit` rebuilds every price level as
 a queue of individual orders and checks each execution against that, among the
-displayed orders ITCH shows. Full session, 30 Dec 2019 (`docs/queue_audit.txt`):
+displayed orders ITCH shows. Two full sessions, run under both meanings of "oldest"
+(outputs in `docs/queue_audit_*.txt`):
 
-- **Price priority.** Of 5,822,741 executions, 273 (0.005%) were not at the best
-  displayed price on their side. All were non-printable `C` executions in stocks that
-  were halted, paused, or within one second of a status change.
-- **Time priority, ranked by arrival.** Treating the order whose Add message arrived
-  first as the oldest leaves 10,565 ordinary (`E`) executions that appear to jump an
-  older order; 86% of them fall between 09:30 and 10:00.
-- **Time priority, ranked by reference number.** Treating the lowest order reference
-  number as the oldest leaves zero: all 5,722,824 `E` executions hit the
-  lowest-numbered order at the best displayed price. The difference is 360,450 adds
-  (of 140,270,523) that reach the feed after a higher-numbered order at the same price
-  level. Most of the apparent jumps come just after the open, which would fit orders
-  entered earlier reaching the book at 09:30 out of entry order; that part is a guess.
-- **Hidden ranking price.** The 82,365 time exceptions that remain are all `C`
-  messages, and 82,345 of them executed at a price more aggressive than the order
-  displayed, which fits the order being ranked at a better price than the one shown.
+| | 30 Dec 2019 | 30 Jul 2019 |
+|---|---|---|
+| Messages | 268,744,780 | 282,229,684 |
+| Executions | 5,822,741 | 7,717,995 |
+| Not at the best displayed price | 273 | 18 |
+| Ordinary (`E`) executions | 5,722,824 | 7,582,422 |
+| `E` out of turn, oldest = first Add to arrive | 10,565 | 5,277 |
+| `E` out of turn, oldest = lowest reference number | **0** | **0** |
+| Adds reaching the feed behind a higher-numbered resting order | 360,450 | 356,231 |
+| `C` executions out of turn | 82,365 | 110,168 |
+| ...of which executed more aggressively than displayed | 82,345 | 110,167 |
+
+- **Price priority.** 291 of 13.5M executions were not at the best displayed price.
+  All were non-printable `C` executions in stocks that were halted, paused, or within
+  one second of a status change.
+- **Time priority.** Ranked by arrival, thousands of ordinary executions appear to jump
+  an older order (on 30 Dec, 86% of them between 09:30 and 10:00). Ranked by order
+  reference number, none do: all 13,305,246 `E` executions across both days hit the
+  lowest-numbered order at the best displayed price. The difference is the roughly
+  0.25% of adds that reach the feed after a higher-numbered order at the same price.
+  Why they arrive out of order is a guess: orders entered before the open reaching the
+  book at 09:30 out of entry order would fit the timing on 30 Dec.
+- **Hidden ranking price.** The out-of-turn executions that remain are all `C`
+  messages, and all but 21 of them executed at a price more aggressive than the order
+  displayed, which fits those orders being ranked at a better price than the one shown.
 - **Replaces.** A replace gets a new, higher reference number, and the zero-exception
-  result holds with it at the back of its queue. Under arrival ranking, letting a
-  size-only replace keep its place adds 588 exceptions.
+  result holds with it at the back of its queue. On 30 Dec, letting a size-only replace
+  keep its place under arrival ranking adds 588 exceptions.
 
-These are what one day of data is consistent with, not rules quoted from NASDAQ.
+These are what two days of data are consistent with, not rules quoted from NASDAQ.
 
 The same pass measures how often an order trades, by the displayed shares already
-ahead of it when it joined or improved the best price in continuous trading:
+ahead of it when it joined or improved the best price in continuous trading. The
+pattern is the same on both days:
 
-| Shares ahead | Orders | Traded at least once | Shares traded |
-|---|---|---|---|
-| 0 (new best price) | 14,833,394 | 9.12% | 4.43% |
-| 1-99 | 2,904,290 | 12.87% | 9.66% |
-| 100-199 | 7,185,460 | 8.28% | 5.96% |
-| 200-499 | 9,958,560 | 6.25% | 4.49% |
-| 500-999 | 7,512,517 | 4.24% | 3.25% |
-| 1000-1999 | 7,230,477 | 3.35% | 2.56% |
-| 2000-4999 | 7,107,201 | 2.67% | 1.89% |
-| 5000+ | 8,063,773 | 2.08% | 0.68% |
+| Shares ahead | Orders, 30 Dec | Traded, 30 Dec | Orders, 30 Jul | Traded, 30 Jul |
+|---|---|---|---|---|
+| 0 (new best price) | 14,833,394 | 9.12% | 14,171,209 | 11.51% |
+| 1-99 | 2,904,290 | 12.87% | 1,759,385 | 17.12% |
+| 100-199 | 7,185,460 | 8.28% | 7,756,050 | 11.20% |
+| 200-499 | 9,958,560 | 6.25% | 11,354,571 | 8.64% |
+| 500-999 | 7,512,517 | 4.24% | 8,005,701 | 5.38% |
+| 1000-1999 | 7,230,477 | 3.35% | 7,288,679 | 3.96% |
+| 2000-4999 | 7,107,201 | 2.67% | 7,075,242 | 3.17% |
+| 5000+ | 8,063,773 | 2.08% | 8,282,597 | 2.41% |
+
+"Traded" is the share of orders that executed at least once.
 
 ## Design
 
@@ -279,6 +293,7 @@ make
 ./build/itchfh_baseline --pin 0,1 data/12302019.itch
 ./scripts/bench.sh                           # both builds, 3 pinned runs each, as a table
 gunzip -c day.gz | ./build/queue_audit - --priority-by-reference   # the priority audit
+# second day: https://emi.nasdaq.com/ITCH/Nasdaq%20ITCH/07302019.NASDAQ_ITCH50.gz
 ./build/itchfh --conflate --queue 64 --work 2000 data/sample_50MB.itch
 gunzip -c day.gz | ./build/itchfh --signal - AAPL > docs/signal_run.txt   # stream without unpacking to disk
 python3 scripts/plot.py docs/signal_run.txt  # regenerate the charts
@@ -308,7 +323,7 @@ queue, the JSON export, and the queue audit on a scripted stream.
 
 - Bare-metal numbers: the benchmarks ran under WSL2, the full-day runs in a 2-vCPU VM.
 - Snapshot recovery for gaps too large to replay (today the receiver stops with an error).
-- The queue audit on more than one day, and against the exchange's published order-type rules.
+- The queue audit on more than two days, and against the exchange's published order-type rules.
 - Signal study at fixed lead times and across multiple days.
 
 CI (`.github/workflows/ci.yml`) runs the unit tests and the UDP loss test on a
